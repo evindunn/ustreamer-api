@@ -1,6 +1,17 @@
+import contextlib
+
 from fastapi import FastAPI
 
-from .routers import base_router
+from .models import get_engine
+from .routes import base_router
+from .settings import get_settings
+
+
+@contextlib.asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize application resources during startup."""
+    app.state.engine = get_engine(get_settings().db_file)
+    yield
 
 
 def create_app() -> FastAPI:
@@ -10,9 +21,8 @@ def create_app() -> FastAPI:
     To run with uvicorn, use the following command:
         uvicorn --factory 'ustreamer_api:create_app'
     """
-    app = FastAPI(title="ustreamer-api")
+    app = FastAPI(title="ustreamer-api", lifespan=lifespan)
     app.include_router(base_router)
-
     return app
 
 
