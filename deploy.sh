@@ -26,6 +26,8 @@ rsync -Dlprt --progress \
     nginx.conf \
     "${HOST}:${APP_PREFIX}/"
 
+printf 'CERT_APPROLE_ID=%s\n' "$CERT_APPROLE_ID" | ssh "$HOST" "cat > /etc/ustreamer/vault-agent.env"
+
 echo "Bringing up compose..."
 ssh $HOST 'docker network create vaultnet 2>/dev/null || true'
 ssh $HOST "(cd '${APP_PREFIX}' && docker compose pull && docker compose up -d --force-recreate)"

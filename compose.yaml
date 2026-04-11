@@ -3,7 +3,7 @@ services:
     image: "git.localdomain.net/docker/images/vault-agent:latest"
     restart: unless-stopped
     dns: ["192.168.1.99"]
-    env_file: /etc/ustreamer/envfile
+    env_file: /etc/ustreamer/vault-agent.env
     environment:
       VAULT_ADDR: https://vault.localdomain.net:8200
       CERT_COMMON_NAME: picam.localdomain.net
@@ -19,12 +19,9 @@ services:
   ustreamer:
     image: "pikvm/ustreamer:latest"
     restart: unless-stopped
-    env_file: /etc/ustreamer/envfile
-    depends_on:
-      - vault-agent
+    env_file: /etc/ustreamer/ustreamer.env
     networks:
       - ustreamer
-      - vaultnet
     devices:
       - "${VIDEO_DEVICE:-/dev/video0}:${VIDEO_DEVICE:-/dev/video0}"
     command:
@@ -38,14 +35,13 @@ services:
   nginx:
     image: "nginx:stable-alpine"
     restart: unless-stopped
-    env_file: /etc/ustreamer/envfile
     depends_on:
       - vault-agent
       - ustreamer
     networks:
       - ustreamer
     ports:
-      - "${HTTPS_PORT:-443}:443"
+      - "0.0.0.0:443"
     volumes:
       - "./nginx.conf:/etc/nginx/conf.d/default.conf:ro"
       - "ssl:/secrets:ro"
