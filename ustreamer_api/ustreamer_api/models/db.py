@@ -46,13 +46,15 @@ class Timelapse(SQLModel, table=True):
 def get_engine(db_file: str) -> sqlalchemy.Engine:
     if db_file == ":memory:":
         uri = "sqlite://"
+        pool_class = sqlalchemy.pool.StaticPool
     else:
         uri = f"sqlite:///{db_file}"
+        pool_class = sqlalchemy.pool.QueuePool
 
     engine = create_engine(
         uri,
         connect_args={"check_same_thread": False},
-        poolclass=sqlalchemy.pool.StaticPool,
+        poolclass=pool_class,
     )
     SQLModel.metadata.create_all(engine)
     return engine
