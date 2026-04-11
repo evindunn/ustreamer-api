@@ -1,0 +1,36 @@
+name: deploy ustreamer
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ssh
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v4
+
+      - name: set up ssh key
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.ssh
+
+          echo '${{ secrets.PKEY_DEPLOY_USER }}' > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+
+          cat << EOF | tee ~/.ssh/config
+          Host *
+              User deploy
+              IdentityFile ~/.ssh/id_deploy
+          EOF
+
+          # Pre-populate known_hosts so SSH won't prompt
+          ssh-keyscan picam.localdomain.net >> ~/.ssh/known_hosts
+
+      - name: run deploy.sh
+        env:
+          CERT_APPROLE_ID: "${{ secrets.CERT_APPROLE_ID }}"
+        run: ./deploy.sh picam.localdomain.net

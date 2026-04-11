@@ -1,0 +1,64 @@
+services:
+  vault-agent:
+    image: "git.localdomain.net/docker/images/vault-agent:latest"
+    restart: unless-stopped
+    dns: ["192.168.1.99"]
+    env_file: /etc/ustreamer/envfile
+    environment:
+      VAULT_ADDR: https://vault.localdomain.net:8200
+      CERT_COMMON_NAME: picam.localdomain.net
+      CERT_IP_SANS: 192.168.1.92
+      CERT_PKI_ROLE: localdomain-net
+    extra_hosts:
+      vault.localdomain.net: 192.168.1.99
+    networks:
+      - vaultnet
+    volumes:
+      - "ssl:/secrets"
+
+  ustreamer:
+    image: "pikvm/ustreamer:latest"
+    restart: unless-stopped
+    env_file: /etc/ustreamer/envfile
+    depends_on:
+      - vault-agent
+    networks:
+      - ustreamer
+      - vaultnet
+    devices:
+      - "${VIDEO_DEVICE:-/dev/video0}:${VIDEO_DEVICE:-/dev/video0}"
+    command:
+      - "--device=${VIDEO_DEVICE:-/dev/video0}"
+      - "--host=0.0.0.0"
+      - "--port=8080"
+      - "--resolution=${RESOLUTION:-1280x720}"
+      - "--desired-fps=${FPS:-30}"
+      - "--quality=${QUALITY:-80}"
+
+  nginx:
+    image: "nginx:stable-alpine"
+    restart: unless-stopped
+    env_file: /etc/ustreamer/envfile
+    depends_on:
+      - vault-agent
+      - ustreamer
+    networks:
+      - ustreamer
+    ports:
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - "./nginx.conf:/etc/nginx/conf.d/default.conf:ro"
+      - "ssl:/secrets:ro"
+
+volumes:
+  ssl:
+    driver: local
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "mode=1777,size=1m"
+
+networks:
+  ustreamer: {}
+  vaultnet:
+    external: true
