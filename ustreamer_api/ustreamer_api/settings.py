@@ -18,6 +18,10 @@ class Settings(pydantic_settings.BaseSettings):
         default_factory=_default_data_dir,
         description="Directory to store application data, such as the database file and timelapse images/videos",
     )
+    db_file: str = pydantic.Field(
+        default=":memory:",
+        description="Path to the database file. If set to ':memory:', an in-memory database will be used.",
+    )
 
     @pydantic.field_validator("data_dir", mode="after")
     @classmethod
@@ -25,11 +29,6 @@ class Settings(pydantic_settings.BaseSettings):
         """Create the data directory if it does not already exist."""
         value.mkdir(parents=True, exist_ok=True)
         return value
-
-    @property
-    def db_file(self) -> pathlib.Path:
-        """Return the path to the database file."""
-        return self.data_dir / "ustreamer-api.sqlite"
 
 
 @functools.cache

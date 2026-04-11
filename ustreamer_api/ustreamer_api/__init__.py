@@ -2,7 +2,7 @@ import contextlib
 
 from fastapi import FastAPI
 
-from .models import get_engine
+from .models.db import get_engine
 from .routes import base_router
 from .settings import get_settings
 
