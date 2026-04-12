@@ -32,6 +32,18 @@ services:
       - "--desired-fps=${FPS:-30}"
       - "--quality=${QUALITY:-80}"
 
+  ustreamer_api:
+    image: "git.localdomain.net/docker/images/ustreamer-api:latest"
+    restart: unless-stopped
+    environment:
+      USTREAMER_API_DATA_DIR: /data
+      USTREAMER_API_DB_FILE: /data/ustreamer.db
+      USTREAMER_API_USTREAMER_URL: http://ustreamer:8080
+    networks:
+      - ustreamer
+    volumes:
+      - "ustreamer_api_data:/data"
+
   nginx:
     image: "nginx:stable-alpine"
     restart: unless-stopped
@@ -53,6 +65,7 @@ volumes:
       type: tmpfs
       device: tmpfs
       o: "mode=1777,size=1m"
+  ustreamer_api_data: {}
 
 networks:
   ustreamer: {}
