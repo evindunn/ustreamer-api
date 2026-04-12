@@ -52,6 +52,22 @@ services:
     volumes:
       - "ustreamer_api_data:/data"
 
+  ustreamer_worker:
+    image: "git.localdomain.net/docker/images/ustreamer-api:latest"
+    restart: unless-stopped
+    command: ["ustreamer-api", "worker"]
+    depends_on:
+      - ustreamer
+      - ustreamer_api
+    environment:
+      USTREAMER_API_DATA_DIR: /data
+      USTREAMER_API_DB_FILE: /data/ustreamer.db
+      USTREAMER_API_USTREAMER_URL: http://ustreamer:8080
+    networks:
+      - ustreamer
+    volumes:
+      - "ustreamer_api_data:/data"
+
   nginx:
     image: "nginx:stable-alpine"
     restart: unless-stopped
