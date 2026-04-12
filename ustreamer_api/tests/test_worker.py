@@ -1,12 +1,15 @@
-import uuid
 import concurrent.futures
+import pathlib
+import signal
+import types
+import uuid
 
-from fastapi.testclient import TestClient
+import fastapi.testclient
 import sqlalchemy.orm
 
-from ustreamer_api import worker
-from ustreamer_api.api import create_app
-from ustreamer_api.models.db import Timelapse, get_engine
+import ustreamer_api.api
+import ustreamer_api.models.db
+import ustreamer_api.worker
 
 JOB_COUNT = 10
 EVENT_DURATION = 60
@@ -16,20 +19,6 @@ TARGET_FPS = 24
 
 class _StopWorker(Exception):
     """Signal the worker loop to stop after one iteration."""
-
-
-class _LoopSleepController:
-    """Allow worker tasks to sleep, then stop after the loop sleep."""
-
-    def __init__(self, process_sleep_calls: int) -> None:
-        self.process_sleep_calls = process_sleep_calls
-        self.calls = 0
-
-    def __call__(self, _: float) -> None:
-        """Permit per-job sleeps and stop at the end-of-loop sleep."""
-        self.calls += 1
-        if self.calls > self.process_sleep_calls:
-            raise _StopWorker()
 
 
 class _FakeExecutor:
@@ -45,23 +34,32 @@ class _FakeExecutor:
     def __exit__(self, exc_type, exc, tb) -> None:
         return None
 
-    def submit(self, fn: object, job_id: uuid.UUID, settings: object) -> concurrent.futures.Future[uuid.UUID]:
-        """Record the submitted process call for later assertions."""
+    def submit(
+        self,
+        fn: object,
+        job_id: uuid.UUID,
+        settings: object,
+    ) -> concurrent.futures.Future[uuid.UUID]:
+        """Return a completed future for the submitted job id."""
         self.submitted_jobs.append((fn, job_id, settings))
         future: concurrent.futures.Future[uuid.UUID] = concurrent.futures.Future()
-        future.set_result(fn(job_id, settings))
+        future.set_result(job_id)
         return future
 
 
-def _populate_timelapses(monkeypatch, tmp_path) -> tuple[object, list[uuid.UUID]]:
-    """Create test timelapses through the API and return the database path and ids."""
+def _create_timelapses_via_api(
+    monkeypatch,
+    tmp_path: pathlib.Path,
+    count: int = JOB_COUNT,
+) -> tuple[pathlib.Path, list[uuid.UUID]]:
+    """Create timelapse records through the API and return their ids."""
     db_file = tmp_path / "worker-test.sqlite"
     monkeypatch.setenv("USTREAMER_API_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("USTREAMER_API_DB_FILE", str(db_file))
 
     created_job_ids: list[uuid.UUID] = []
-    with TestClient(create_app()) as client:
-        for _ in range(JOB_COUNT):
+    with fastapi.testclient.TestClient(ustreamer_api.api.create_app()) as client:
+        for _ in range(count):
             response = client.post(
                 "/timelapses",
                 json={
@@ -70,7 +68,6 @@ def _populate_timelapses(monkeypatch, tmp_path) -> tuple[object, list[uuid.UUID]
                     "target_fps": TARGET_FPS,
                 },
             )
-
             assert response.status_code == 201
             created_job_ids.append(uuid.UUID(response.json()["id"]))
 
@@ -78,60 +75,128 @@ def _populate_timelapses(monkeypatch, tmp_path) -> tuple[object, list[uuid.UUID]
 
 
 def test_worker_main_submits_ten_api_created_jobs(monkeypatch, tmp_path) -> None:
-    """Worker main creates one process submission per active API-created job."""
-    _, created_job_ids = _populate_timelapses(monkeypatch, tmp_path)
+    """Worker main submits one future per active job in the database."""
+    _, created_job_ids = _create_timelapses_via_api(monkeypatch, tmp_path)
 
     submitted_jobs: list[tuple[object, uuid.UUID, object]] = []
     executor_instances: list[_FakeExecutor] = []
-    expected_processes = JOB_COUNT
 
-    monkeypatch.setattr(worker.Timelapse, "execute", lambda self: None)
-    monkeypatch.setattr(worker.random, "randint", lambda a, b: 0)
-    monkeypatch.setattr(worker.multiprocessing, "cpu_count", lambda: expected_processes)
+    monkeypatch.setattr(ustreamer_api.worker.multiprocessing, "cpu_count", lambda: JOB_COUNT)
     monkeypatch.setattr(
-        worker.concurrent.futures,
+        ustreamer_api.worker.concurrent.futures,
         "ProcessPoolExecutor",
         lambda max_workers: executor_instances.append(_FakeExecutor(submitted_jobs, max_workers)) or executor_instances[-1],
     )
-    monkeypatch.setattr(worker.time, "sleep", _LoopSleepController(JOB_COUNT))
+    monkeypatch.setattr(
+        ustreamer_api.worker.time,
+        "sleep",
+        lambda _: (_ for _ in ()).throw(_StopWorker()),
+    )
 
     try:
-        worker.worker_main()
+        ustreamer_api.worker.worker_main()
     except _StopWorker:
         pass
 
     assert len(executor_instances) == 1
-    assert executor_instances[0].max_workers == expected_processes
+    assert executor_instances[0].max_workers == JOB_COUNT
     assert len(submitted_jobs) == JOB_COUNT
     assert {job_id for _, job_id, _ in submitted_jobs} == set(created_job_ids)
 
 
-def test_worker_main_sets_ended_at_for_each_processed_job(monkeypatch, tmp_path) -> None:
-    """Worker main marks each processed job as ended."""
-    db_file, created_job_ids = _populate_timelapses(monkeypatch, tmp_path)
+def test_process_job_persists_execute_side_effects(monkeypatch, tmp_path) -> None:
+    """Process job loads the row, runs execute, and commits the changes."""
+    db_file, created_job_ids = _create_timelapses_via_api(monkeypatch, tmp_path, count=1)
+    job_id = created_job_ids[0]
+    settings = ustreamer_api.worker.Settings()
 
     monkeypatch.setattr(
-        worker.Timelapse,
+        ustreamer_api.models.db.Timelapse,
         "execute",
         lambda self: setattr(self, "ended_at", self.started_at),
     )
-    monkeypatch.setattr(worker.random, "randint", lambda a, b: 0)
-    monkeypatch.setattr(worker.multiprocessing, "cpu_count", lambda: JOB_COUNT)
-    monkeypatch.setattr(
-        worker.concurrent.futures,
-        "ProcessPoolExecutor",
-        lambda max_workers: _FakeExecutor([], max_workers),
-    )
-    monkeypatch.setattr(worker.time, "sleep", _LoopSleepController(JOB_COUNT))
+    monkeypatch.setattr(ustreamer_api.worker.random, "randint", lambda start, end: 0)
+    monkeypatch.setattr(ustreamer_api.worker.time, "sleep", lambda _: None)
 
-    try:
-        worker.worker_main()
-    except _StopWorker:
-        pass
+    result = ustreamer_api.worker.process_job(job_id, settings)
 
-    engine = get_engine(str(db_file))
+    engine = ustreamer_api.models.db.get_engine(str(db_file))
     with sqlalchemy.orm.Session(engine) as session:
-        jobs = [session.get(Timelapse, job_id) for job_id in created_job_ids]
+        job = session.get(ustreamer_api.models.db.Timelapse, job_id)
 
-    assert all(job is not None for job in jobs)
-    assert all(job.ended_at is not None for job in jobs if job is not None)
+    assert result == job_id
+    assert job is not None
+    assert job.ended_at == job.started_at
+
+
+def test_timelapse_execute_captures_frames_and_stops_on_sigint(monkeypatch, tmp_path) -> None:
+    """Execute saves captured frames and exits cleanly when interrupted."""
+    captured_handlers: dict[int, object] = {}
+    fake_now = {"value": 0.0}
+    request_count = {"value": 0}
+
+    class _FakeResponse:
+        """Provide a minimal successful HTTP response."""
+
+        content = b"frame-bytes"
+
+        def raise_for_status(self) -> None:
+            """Validate the fake response."""
+            return None
+
+    class _FakeClient:
+        """Capture outbound requests without making network calls."""
+
+        def __enter__(self) -> "_FakeClient":
+            return self
+
+        def __exit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        def get(self, url: str, params: dict[str, str]) -> _FakeResponse:
+            """Return a successful fake snapshot response."""
+            assert url == "http://camera.local"
+            assert params == {"action": "snapshot"}
+            request_count["value"] += 1
+            return _FakeResponse()
+
+    def _fake_sleep(duration: float) -> None:
+        """Advance fake time and request shutdown after the second capture."""
+        fake_now["value"] += duration
+        if request_count["value"] >= 2:
+            handler = captured_handlers[signal.SIGINT]
+            handler(signal.SIGINT, None)
+
+    monkeypatch.setattr(
+        ustreamer_api.models.db.settings,
+        "get_settings",
+        lambda: types.SimpleNamespace(
+            data_dir=tmp_path,
+            ustreamer_url="http://camera.local",
+        ),
+    )
+    monkeypatch.setattr(ustreamer_api.models.db.httpx, "Client", lambda timeout: _FakeClient())
+    monkeypatch.setattr(ustreamer_api.models.db.time, "monotonic", lambda: fake_now["value"])
+    monkeypatch.setattr(ustreamer_api.models.db.time, "sleep", _fake_sleep)
+    monkeypatch.setattr(ustreamer_api.models.db.signal, "getsignal", lambda signum: None)
+    monkeypatch.setattr(
+        ustreamer_api.models.db.signal,
+        "signal",
+        lambda signum, handler: captured_handlers.__setitem__(signum, handler),
+    )
+
+    timelapse = ustreamer_api.models.db.Timelapse(
+        event_duration=EVENT_DURATION,
+        target_duration=TARGET_DURATION,
+        target_fps=TARGET_FPS,
+    )
+
+    timelapse.execute()
+
+    output_dir = tmp_path / f"{timelapse.started_at.strftime('%Y-%m-%dT%H-%M-%S')}_{timelapse.id.hex}"
+    frame_paths = sorted(output_dir.glob("frame-*.jpg"))
+
+    assert request_count["value"] == 2
+    assert [path.name for path in frame_paths] == ["frame-000000.jpg", "frame-000001.jpg"]
+    assert all(path.read_bytes() == b"frame-bytes" for path in frame_paths)
+    assert timelapse.ended_at is not None
