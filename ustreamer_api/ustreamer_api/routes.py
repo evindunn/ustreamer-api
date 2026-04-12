@@ -8,6 +8,7 @@ base_router = APIRouter()
 
 @base_router.get("/healthz")
 async def healthcheck() -> dict[str, str]:
+    """Return a simple health status payload."""
     return {"status": "ok"}
 
 @base_router.post(
@@ -19,6 +20,7 @@ async def start_timelapse(
     payload: StartTimelapseRequest,
     db: DatabaseSession,
 ) -> Timelapse:
+    """Create and persist a new timelapse record."""
     timelapse = Timelapse(**payload.model_dump())
 
     db.add(timelapse)

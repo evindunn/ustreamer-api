@@ -19,6 +19,7 @@ def _utc_now() -> datetime.datetime:
 
 
 class Timelapse(SQLModel, table=True):
+    """Database model representing a timelapse capture session."""
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     started_at: datetime.datetime = Field(default_factory=_utc_now)
     event_duration: float
@@ -38,6 +39,7 @@ class Timelapse(SQLModel, table=True):
 
 @functools.cache
 def get_engine(db_file: str) -> sqlalchemy.Engine:
+    """Create and return a SQLAlchemy engine for the given sqlite database file."""
     if db_file == ":memory:":
         uri = "sqlite://"
         pool_class = sqlalchemy.pool.StaticPool

@@ -3,6 +3,7 @@ import pydantic
 
 
 class StartTimelapseRequest(pydantic.BaseModel):
+    """Request payload for creating a timelapse."""
     event_duration: float = pydantic.Field(gt=0)
     target_duration: float = pydantic.Field(gt=0)
     target_fps: float = pydantic.Field(gt=0)
