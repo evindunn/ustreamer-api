@@ -22,6 +22,10 @@ class Settings(pydantic_settings.BaseSettings):
         default=":memory:",
         description="Path to the database file. If set to ':memory:', an in-memory database will be used.",
     )
+    ustreamer_url: str = pydantic.Field(
+        default="http://127.0.0.1:8080",
+        description="Base URL of the uStreamer instance to control",
+    )
 
     @pydantic.field_validator("data_dir", mode="after")
     @classmethod

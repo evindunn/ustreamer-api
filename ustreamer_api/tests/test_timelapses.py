@@ -34,5 +34,5 @@ def test_start_timelapse_creates_record(monkeypatch, tmp_path) -> None:
     assert timelapse.event_duration == EXPECTED_EVT_DURATION
     assert timelapse.target_duration == EXPECTED_TIMELAPSE_DURATION
     assert timelapse.target_fps == EXPECTED_TARGET_FPS
-    assert abs(timelapse.shot_interval() - EXPECTED_SHOT_INTERVAL) < 0.001
+    assert abs(timelapse.shot_interval - EXPECTED_SHOT_INTERVAL) < 0.001
     assert timelapse.id

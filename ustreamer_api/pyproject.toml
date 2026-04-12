@@ -12,16 +12,18 @@ dependencies = [
     "uvicorn (>=0.44.0,<1.0.0)",
     "pydantic-settings (>=2.13.1,<3.0.0)",
     "sqlmodel (>=0.0.38,<0.0.39)",
-    "tzdata (>=2026.1)"
+    "tzdata (>=2026.1)",
+    "click (>=8.3.2,<9.0.0)",
+    "httpx (>=0.28.1,<0.29.0)"
 ]
 
 [project.scripts]
 test = "pytest:main"
+ustreamer-api = "ustreamer_api._cli:cli"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.4.0"
 pytest-cov = "^6.2.1"
-httpx = "^0.28.1"
 
 [tool.pytest.ini_options]
 addopts = "--cov=ustreamer_api --cov-report=term-missing"

@@ -1,5 +1,9 @@
 import datetime
 import functools
+import httpx
+import pathlib
+import signal
+import time
 import typing
 import uuid
 import zoneinfo
@@ -8,7 +12,7 @@ from fastapi import Depends
 import sqlalchemy
 import sqlalchemy.orm
 from sqlmodel import Field, SQLModel, create_engine
-from ustreamer_api import settings
+from .. import settings
 
 UTC = zoneinfo.ZoneInfo("UTC")
 
@@ -27,14 +31,52 @@ class Timelapse(SQLModel, table=True):
     target_fps: float
     ended_at: datetime.datetime | None = None
 
+    @property
     def shot_interval(self) -> float:
         """Calculate the interval between shots in seconds."""
         total_frames = self.target_duration * self.target_fps
         return self.event_duration / total_frames
 
-    def done(self) -> None:
-        """Mark the timelapse done by setting the ended_at timestamp."""
-        self.ended_at = _utc_now()
+    def execute(self) -> None:
+        """Execute the timelapse capture session."""
+        stop_requested = False
+
+        def _handle_sigint(signum: int, frame: typing.Any) -> None:
+            """Request capture shutdown after the current loop iteration."""
+            nonlocal stop_requested
+            stop_requested = True
+
+        try:
+            config = settings.get_settings()
+            output_dir = config.data_dir / f"{self.started_at.strftime('%Y-%m-%dT%H-%M-%S')}_{self.id.hex}"
+            output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+            started_at = time.monotonic()
+            last_capture_at = started_at - self.shot_interval
+            frame_index = 0
+            previous_sigint_handler = signal.getsignal(signal.SIGINT)
+            signal.signal(signal.SIGINT, _handle_sigint)
+
+            try:
+                with httpx.Client(timeout=10.0) as client:
+                    while not stop_requested:
+                        elapsed = time.monotonic() - started_at
+                        if elapsed >= self.event_duration:
+                            break
+
+                        if elapsed - (last_capture_at - started_at) >= self.shot_interval:
+                            response = client.get(config.ustreamer_url, params={"action": "snapshot"})
+                            response.raise_for_status()
+                            frame_path = output_dir / f"frame-{frame_index:06d}.jpg"
+                            frame_path.write_bytes(response.content)
+                            frame_index += 1
+                            last_capture_at = time.monotonic()
+                            continue
+
+                        time.sleep(min(0.1, self.shot_interval))
+            finally:
+                signal.signal(signal.SIGINT, previous_sigint_handler)
+        finally:
+            self.ended_at = _utc_now()
 
     @staticmethod
     def find_active_ids(session: sqlalchemy.orm.Session) -> list[uuid.UUID]:

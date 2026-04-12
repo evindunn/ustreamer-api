@@ -18,6 +18,20 @@ class _StopWorker(Exception):
     """Signal the worker loop to stop after one iteration."""
 
 
+class _LoopSleepController:
+    """Allow worker tasks to sleep, then stop after the loop sleep."""
+
+    def __init__(self, process_sleep_calls: int) -> None:
+        self.process_sleep_calls = process_sleep_calls
+        self.calls = 0
+
+    def __call__(self, _: float) -> None:
+        """Permit per-job sleeps and stop at the end-of-loop sleep."""
+        self.calls += 1
+        if self.calls > self.process_sleep_calls:
+            raise _StopWorker()
+
+
 class _FakeExecutor:
     """Capture submitted jobs without spawning real worker processes."""
 
@@ -35,7 +49,7 @@ class _FakeExecutor:
         """Record the submitted process call for later assertions."""
         self.submitted_jobs.append((fn, job_id, settings))
         future: concurrent.futures.Future[uuid.UUID] = concurrent.futures.Future()
-        future.set_result(job_id)
+        future.set_result(fn(job_id, settings))
         return future
 
 
@@ -71,17 +85,15 @@ def test_worker_main_submits_ten_api_created_jobs(monkeypatch, tmp_path) -> None
     executor_instances: list[_FakeExecutor] = []
     expected_processes = JOB_COUNT
 
+    monkeypatch.setattr(worker.Timelapse, "execute", lambda self: None)
+    monkeypatch.setattr(worker.random, "randint", lambda a, b: 0)
     monkeypatch.setattr(worker.multiprocessing, "cpu_count", lambda: expected_processes)
     monkeypatch.setattr(
         worker.concurrent.futures,
         "ProcessPoolExecutor",
         lambda max_workers: executor_instances.append(_FakeExecutor(submitted_jobs, max_workers)) or executor_instances[-1],
     )
-    monkeypatch.setattr(
-        worker.time,
-        "sleep",
-        lambda _: (_ for _ in ()).throw(_StopWorker()),
-    )
+    monkeypatch.setattr(worker.time, "sleep", _LoopSleepController(JOB_COUNT))
 
     try:
         worker.worker_main()
@@ -98,17 +110,19 @@ def test_worker_main_sets_ended_at_for_each_processed_job(monkeypatch, tmp_path)
     """Worker main marks each processed job as ended."""
     db_file, created_job_ids = _populate_timelapses(monkeypatch, tmp_path)
 
+    monkeypatch.setattr(
+        worker.Timelapse,
+        "execute",
+        lambda self: setattr(self, "ended_at", self.started_at),
+    )
+    monkeypatch.setattr(worker.random, "randint", lambda a, b: 0)
     monkeypatch.setattr(worker.multiprocessing, "cpu_count", lambda: JOB_COUNT)
     monkeypatch.setattr(
         worker.concurrent.futures,
         "ProcessPoolExecutor",
         lambda max_workers: _FakeExecutor([], max_workers),
     )
-    monkeypatch.setattr(
-        worker.time,
-        "sleep",
-        lambda _: (_ for _ in ()).throw(_StopWorker()),
-    )
+    monkeypatch.setattr(worker.time, "sleep", _LoopSleepController(JOB_COUNT))
 
     try:
         worker.worker_main()
