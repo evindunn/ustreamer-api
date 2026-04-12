@@ -5,7 +5,6 @@ import multiprocessing
 import random
 import signal
 import time
-import typing
 import uuid
 
 import sqlalchemy
@@ -30,20 +29,22 @@ def _get_db_engine(settings: Settings) -> sqlalchemy.Engine:
 
 def process_job(job_id: uuid.UUID, settings: Settings) -> uuid.UUID:
     """Fetch a the job with the given id from the database and start generating the timelapse frames."""
+    logger = base_logger.getChild("pid-%d" % multiprocessing.current_process().pid)
+    logger.info(f"Processing job {job_id}...")
     with _get_db_engine(settings) as db_engine:
         with sqlalchemy.orm.Session(db_engine) as session:
             timelapse = session.get(Timelapse, job_id)
             if timelapse is not None:
-                print(f"Processing job {job_id}...")
+                logger.info(f"Processing job {job_id}...")
                 timelapse.execute()
                 session.add(timelapse)
                 session.commit()
             else:
-                print(f"Job {job_id} not found in the database")
+                logger.warning(f"Job {job_id} not found in the database")
                 return job_id
 
             time.sleep(random.randint(1, 3))  # Simulate the time taken to process the job
-            print(f"Finished processing job {job_id}")
+            logger.info(f"Finished processing job {job_id}")
     return job_id
 
 
