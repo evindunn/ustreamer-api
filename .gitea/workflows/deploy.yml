@@ -3,6 +3,8 @@ name: deploy ustreamer
 on:
   push:
     branches: [ main ]
+    paths-ignore:
+      - 'ustreamer_api/**'
   registry_package:
     type:
       - published
