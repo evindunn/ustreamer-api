@@ -3,7 +3,8 @@ import concurrent.futures
 
 from fastapi.testclient import TestClient
 
-from ustreamer_api import create_app, worker
+from ustreamer_api import worker
+from ustreamer_api.api import create_app
 
 
 class _StopWorker(Exception):

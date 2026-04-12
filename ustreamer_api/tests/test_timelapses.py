@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from ustreamer_api import create_app
+from ustreamer_api.api import create_app
 from ustreamer_api.models.db import Timelapse
 
         # total_frames = self.event_duration * self.target_fps

@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from ustreamer_api import create_app
+from ustreamer_api.api import create_app
 
 
 def test_healthz_returns_ok() -> None:
