@@ -1,7 +1,7 @@
 from fastapi import APIRouter, status
 
 from .models.db import DatabaseSession, Timelapse
-from .models.api import StartTimelapseRequest, TimelapseResponse
+from .models.api import StartTimelapseRequest
 
 base_router = APIRouter()
 
@@ -12,13 +12,13 @@ async def healthcheck() -> dict[str, str]:
 
 @base_router.post(
     "/timelapses",
-    response_model=TimelapseResponse,
+    response_model=Timelapse,
     status_code=status.HTTP_201_CREATED,
 )
 async def start_timelapse(
     payload: StartTimelapseRequest,
     db: DatabaseSession,
-) -> TimelapseResponse:
+) -> Timelapse:
     timelapse = Timelapse(**payload.model_dump())
 
     db.add(timelapse)

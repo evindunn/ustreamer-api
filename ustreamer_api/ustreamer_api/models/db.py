@@ -22,22 +22,16 @@ class Timelapse(SQLModel, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     started_at: datetime.datetime = Field(default_factory=_utc_now)
     event_duration: float
-    timelapse_duration: float
+    target_duration: float
     target_fps: float
     ended_at: datetime.datetime | None = None
 
-    def save(self, session: sqlalchemy.orm.Session) -> None:
-        """Save the current state of the timelapse to the database."""
-        session.add(self)
-        session.commit()
-        session.refresh(self)
-
     def shot_interval(self) -> float:
         """Calculate the interval between shots in seconds."""
-        total_frames = self.event_duration * self.target_fps
-        return self.timelapse_duration / total_frames
+        total_frames = self.target_duration * self.target_fps
+        return self.event_duration / total_frames
 
-    def end(self) -> None:
+    def stop(self) -> None:
         """Mark the timelapse as ended by setting the ended_at timestamp."""
         self.ended_at = _utc_now()
 

@@ -1,9 +1,16 @@
 from fastapi.testclient import TestClient
 
 from ustreamer_api import create_app
-from ustreamer_api.models.db import get_engine
+from ustreamer_api.models.db import get_engine, Timelapse
 from ustreamer_api.settings import get_settings
 
+        # total_frames = self.event_duration * self.target_fps
+        # return self.timelapse_duration / total_frames
+
+EXPECTED_EVT_DURATION = 60
+EXPECTED_TIMELAPSE_DURATION = 10
+EXPECTED_TARGET_FPS = 24
+EXPECTED_SHOT_INTERVAL = 0.25
 
 def test_start_timelapse_creates_record(monkeypatch, tmp_path) -> None:
     monkeypatch.setenv("USTREAMER_API_DATA_DIR", str(tmp_path))
@@ -15,16 +22,18 @@ def test_start_timelapse_creates_record(monkeypatch, tmp_path) -> None:
         response = client.post(
             "/timelapses",
             json={
-                "event_duration": 60,
-                "timelapse_duration": 10,
-                "target_fps": 24,
+                "event_duration": EXPECTED_EVT_DURATION,
+                "target_duration": EXPECTED_TIMELAPSE_DURATION,
+                "target_fps": EXPECTED_TARGET_FPS,
             },
         )
 
     assert response.status_code == 201
 
     body = response.json()
-    assert body["event_duration"] == 60
-    assert body["timelapse_duration"] == 10
-    assert body["target_fps"] == 24
-    assert body["id"]
+    timelapse = Timelapse(**body)
+    assert timelapse.event_duration == EXPECTED_EVT_DURATION
+    assert timelapse.target_duration == EXPECTED_TIMELAPSE_DURATION
+    assert timelapse.target_fps == EXPECTED_TARGET_FPS
+    assert abs(timelapse.shot_interval() - EXPECTED_SHOT_INTERVAL) < 0.001
+    assert timelapse.id
