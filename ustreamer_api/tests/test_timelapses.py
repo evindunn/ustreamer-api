@@ -1,8 +1,7 @@
 from fastapi.testclient import TestClient
 
 from ustreamer_api import create_app
-from ustreamer_api.models.db import get_engine, Timelapse
-from ustreamer_api.settings import get_settings
+from ustreamer_api.models.db import Timelapse
 
         # total_frames = self.event_duration * self.target_fps
         # return self.timelapse_duration / total_frames
@@ -12,11 +11,11 @@ EXPECTED_TIMELAPSE_DURATION = 10
 EXPECTED_TARGET_FPS = 24
 EXPECTED_SHOT_INTERVAL = 0.25
 
+
 def test_start_timelapse_creates_record(monkeypatch, tmp_path) -> None:
+    """Creating a timelapse returns the persisted record."""
     monkeypatch.setenv("USTREAMER_API_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("USTREAMER_API_DB_FILE", ":memory:")
-    get_settings.cache_clear()
-    get_engine.cache_clear()
 
     with TestClient(create_app()) as client:
         response = client.post(

@@ -1,13 +1,12 @@
-import os
 import pathlib
 
 from ustreamer_api.settings import get_settings
 
 
-def test_data_dir_is_created(tmp_path) -> None:
-    # pytest injects the built-in tmp_path fixture by matching this parameter name.
+def test_data_dir_is_created(monkeypatch, tmp_path) -> None:
+    """Settings initialization creates the configured data directory."""
     data_dir = tmp_path / "data"
-    os.environ["USTREAMER_API_DATA_DIR"] = str(data_dir)
+    monkeypatch.setenv("USTREAMER_API_DATA_DIR", str(data_dir))
 
     settings = get_settings()
 

@@ -12,6 +12,7 @@ async def lifespan(app: FastAPI):
     """Initialize application resources during startup."""
     app.state.engine = get_engine(get_settings().db_file)
     yield
+    app.state.engine.dispose()
 
 
 def create_app() -> FastAPI:

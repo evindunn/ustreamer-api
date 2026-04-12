@@ -12,7 +12,7 @@ def _default_data_dir() -> pathlib.Path:
 
 class Settings(pydantic_settings.BaseSettings):
     """Application settings loaded from environment variables."""
-    model_config = pydantic_settings.SettingsConfigDict(env_prefix="USTREAMER_API_")
+    model_config = pydantic_settings.SettingsConfigDict(env_prefix="USTREAMER_API_", frozen=True)
 
     data_dir: pathlib.Path = pydantic.Field(
         default_factory=_default_data_dir,

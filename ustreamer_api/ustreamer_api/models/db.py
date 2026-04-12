@@ -36,6 +36,12 @@ class Timelapse(SQLModel, table=True):
         """Mark the timelapse as ended by setting the ended_at timestamp."""
         self.ended_at = _utc_now()
 
+    @staticmethod
+    def find_active_ids(session: sqlalchemy.orm.Session) -> list[uuid.UUID]:
+        """Return the ids of active timelapses."""
+        statement = sqlalchemy.select(Timelapse.id).where(Timelapse.ended_at.is_(None))
+        return list(session.execute(statement).scalars())
+
 
 @functools.cache
 def get_engine(db_file: str) -> sqlalchemy.Engine:
