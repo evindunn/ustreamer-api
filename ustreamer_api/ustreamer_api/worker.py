@@ -52,9 +52,18 @@ def worker_main():
                 p = executor.submit(process_job, job_id, settings)
                 procs.append(p)
 
-            for p in procs:
-                job_id = p.result()  # Wait for all submitted jobs to complete before starting the next frame
-                base_logger.info(f"Job {job_id} completed with result")
+            with sqlalchemy.orm.Session(db_engine) as session:
+                for p in procs:
+                    job_id = p.result()  # Wait for all submitted jobs to complete before starting the next frame
+                    base_logger.info(f"Job {job_id} completed with result")
+
+                    job = session.get(Timelapse, job_id)
+                    if job is None:
+                        base_logger.warning(f"Job {job_id} not found in the database after processing")
+                    else:
+                        job.done()
+                        session.add(job)
+                session.commit()
 
             frame_duration = time.time() - frame_start
             time.sleep(1.0 - frame_duration)
