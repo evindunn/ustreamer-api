@@ -49,6 +49,12 @@ def process_job(job_id: uuid.UUID, settings: Settings) -> uuid.UUID:
 
 
 def worker_main():
+    logging.basicConfig(
+        level=logging.INFO, 
+        format="[%(asctime)s][%(levelname)s][%(name)s]: %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S%z"
+    )
+
     """Worker process function to perform background tasks."""
     settings = Settings()
     stop_requested = False
@@ -57,13 +63,15 @@ def worker_main():
         """Request worker shutdown after the current loop iteration completes."""
         nonlocal stop_requested
         stop_requested = True
-        base_logger.info("Received signal %s; waiting for timelapses to complete...", signum)
+        base_logger.info("Received signal %s; waiting for jobs to complete...", signum)
 
     previous_sigint_handler = signal.getsignal(signal.SIGINT)
     signal.signal(signal.SIGINT, _handle_sigint)
 
     try:
         with _get_db_engine(settings) as db_engine, concurrent.futures.ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+            base_logger.info("Waiting for jobs...")
+            base_logger.info("Press Ctrl+C to stop")
             while True:
                 frame_start = time.time()
                 with sqlalchemy.orm.Session(db_engine) as session:
@@ -75,13 +83,18 @@ def worker_main():
                     procs.append(p)
 
                 for p in concurrent.futures.as_completed(procs):
-                    job_id = p.result()
-                    base_logger.info(f"Job {job_id} completed")
+                    p.result()
 
+                if active_job_ids:
+                    base_logger.info("Completed %d jobs", len(active_job_ids))
+                    base_logger.info("Waiting for jobs...")
+                    base_logger.info("Press Ctrl+C to stop")
+                    
                 if stop_requested:
                     return
 
                 frame_duration = time.time() - frame_start
                 time.sleep(max(0, 1.0 - frame_duration))
     finally:
+        base_logger.info("Done.")
         signal.signal(signal.SIGINT, previous_sigint_handler)
