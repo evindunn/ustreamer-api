@@ -9,7 +9,7 @@ WORKDIR /app
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update \
-    && apt-get install --yes --no-install-recommends python3-pip python3-venv
+    && apt-get install --yes --no-install-recommends ffmpeg python3-pip python3-venv
 
 COPY pyproject.toml README.md ./
 COPY ustreamer_api ./ustreamer_api

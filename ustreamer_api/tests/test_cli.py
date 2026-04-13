@@ -4,6 +4,7 @@ import ssl
 import click.testing
 
 import ustreamer_api._cli
+import ustreamer_api.worker.main
 
 
 class _FakeResponse:
@@ -57,10 +58,11 @@ def test_worker_invokes_worker_main(monkeypatch) -> None:
     worker_calls: list[str] = []
 
     monkeypatch.setattr(
-        ustreamer_api._cli,
+        ustreamer_api.worker.main,
         "worker_main",
         lambda: worker_calls.append("called"),
     )
+    monkeypatch.setattr(ustreamer_api._cli, "worker_main", ustreamer_api.worker.main.worker_main)
 
     result = runner.invoke(ustreamer_api._cli.cli, ["worker"])
 
@@ -103,6 +105,7 @@ def test_client_create_posts_payload(monkeypatch) -> None:
             "--target-fps",
             "30",
         ],
+        env={"USTREAMER_CA_CERTS": ""},
     )
 
     assert result.exit_code == 0

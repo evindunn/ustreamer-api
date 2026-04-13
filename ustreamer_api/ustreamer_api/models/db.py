@@ -1,9 +1,5 @@
 import datetime
 import functools
-import httpx
-import pathlib
-import signal
-import time
 import typing
 import uuid
 import zoneinfo
@@ -22,11 +18,6 @@ def _utc_now() -> datetime.datetime:
     return datetime.datetime.now(UTC)
 
 
-def render_video(image_dir: pathlib.Path, target_fps: float, output_file: pathlib.Path) -> None:
-    """Render a timelapse video from captured images."""
-    pass
-
-
 class Timelapse(SQLModel, table=True):
     """Database model representing a timelapse capture session."""
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -42,51 +33,9 @@ class Timelapse(SQLModel, table=True):
         total_frames = self.target_duration * self.target_fps
         return self.event_duration / total_frames
 
-    def execute(self) -> None:
-        """Execute the timelapse capture session."""
-        stop_requested = False
-        timelapse_name = f"{self.started_at.strftime('%Y-%m-%dT%H-%M-%S')}_{self.id.hex}"
-
-        def _handle_sigint(signum: int, frame: typing.Any) -> None:
-            """Request capture shutdown after the current loop iteration."""
-            nonlocal stop_requested
-            stop_requested = True
-
-        worker_settings = settings.get_worker_settings()
-        common_settings = settings.get_common_settings()
-        output_dir = common_settings.data_dir / timelapse_name
-        output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-        started_at = time.monotonic()
-        last_capture_at = started_at - self.shot_interval
-        frame_index = 0
-        previous_sigint_handler = signal.getsignal(signal.SIGINT)
-        signal.signal(signal.SIGINT, _handle_sigint)
-
-        try:
-            try:
-                with httpx.Client(timeout=10.0) as client:
-                    while not stop_requested:
-                        elapsed = time.monotonic() - started_at
-                        if elapsed >= self.event_duration:
-                            break
-
-                        if elapsed - (last_capture_at - started_at) >= self.shot_interval:
-                            response = client.get(worker_settings.ustreamer_url, params={"action": "snapshot"})
-                            response.raise_for_status()
-                            frame_path = output_dir / f"frame-{frame_index:06d}.jpg"
-                            frame_path.write_bytes(response.content)
-                            frame_index += 1
-                            last_capture_at = time.monotonic()
-                            continue
-
-                        time.sleep(min(0.1, self.shot_interval))
-            finally:
-                self.ended_at = _utc_now()
-        finally:
-            signal.signal(signal.SIGINT, previous_sigint_handler)
-
-        if not stop_requested:
-            render_video(output_dir, common_settings.data_dir / f"{timelapse_name}.mp4")
+    def end(self) -> None:
+        """Mark the timelapse as ended by setting the ended_at field to the current time."""
+        self.ended_at = _utc_now()
 
     @staticmethod
     def find_active_ids(session: sqlalchemy.orm.Session) -> list[uuid.UUID]:

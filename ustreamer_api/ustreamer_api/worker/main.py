@@ -11,8 +11,12 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
-from .settings import WorkerSettings, get_common_settings, get_worker_settings
-from .models.db import get_engine, Timelapse
+from ..models.db import Timelapse
+from ..models.db import get_engine
+from ..settings import WorkerSettings
+from ..settings import get_common_settings
+from ..settings import get_worker_settings
+from ._capture import capture_timelapse
 
 
 _LOG_ROOT = __name__.split(".")[0]
@@ -61,7 +65,6 @@ def _get_db_engine(settings: WorkerSettings) -> typing.Iterator[sqlalchemy.Engin
     finally:
         engine.dispose()
 
-
 def process_job(job_id: uuid.UUID, settings: WorkerSettings) -> uuid.UUID:
     """Fetch a the job with the given id from the database and start generating the timelapse frames."""
     logger = base_logger.getChild("pid-%d" % multiprocessing.current_process().pid)
@@ -71,26 +74,26 @@ def process_job(job_id: uuid.UUID, settings: WorkerSettings) -> uuid.UUID:
             timelapse = session.get(Timelapse, job_id)
             if timelapse is not None:
                 logger.info(f"Processing job {job_id}...")
-                timelapse.execute()
+                capture_timelapse(timelapse, settings)
                 session.add(timelapse)
                 session.commit()
             else:
                 logger.warning(f"Job {job_id} not found in the database")
                 return job_id
 
-            time.sleep(random.randint(1, 3))  # Simulate the time taken to process the job
+            time.sleep(random.randint(1, 3))
             logger.info(f"Finished processing job {job_id}")
     return job_id
 
 
-def worker_main():
+def worker_main() -> None:
     """Worker process function to perform background tasks."""
     settings = get_worker_settings()
     _configure_logging(settings)
 
     stop_requested = False
 
-    def _handle_sigint(signum: int, frame) -> None:
+    def _handle_sigint(signum: int, frame: typing.Any) -> None:
         """Request worker shutdown after the current loop iteration completes."""
         nonlocal stop_requested
         stop_requested = True
@@ -108,19 +111,22 @@ def worker_main():
                 with sqlalchemy.orm.Session(db_engine) as session:
                     active_job_ids = Timelapse.find_active_ids(session)
 
+                if active_job_ids:
+                    base_logger.info("Executing %d jobs...", len(active_job_ids))
+
                 procs = []
                 for job_id in active_job_ids:
-                    p = executor.submit(process_job, job_id, settings)
-                    procs.append(p)
+                    proc = executor.submit(process_job, job_id, settings)
+                    procs.append(proc)
 
-                for p in concurrent.futures.as_completed(procs):
-                    p.result()
+                for proc in concurrent.futures.as_completed(procs):
+                    proc.result()
 
                 if active_job_ids:
                     base_logger.info("Completed %d jobs", len(active_job_ids))
                     base_logger.info("Waiting for jobs...")
                     base_logger.info("Press Ctrl+C to stop")
-                    
+
                 if stop_requested:
                     return
 

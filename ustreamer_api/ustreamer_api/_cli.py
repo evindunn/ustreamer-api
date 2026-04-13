@@ -7,7 +7,7 @@ import typing
 import urllib.request
 import uvicorn
 
-from .worker import worker_main
+from .worker.main import worker_main
 
 DEFAULT_BASE_URL = "https://picam.localdomain.net/api"
 

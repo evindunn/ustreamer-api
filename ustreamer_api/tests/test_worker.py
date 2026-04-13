@@ -9,7 +9,9 @@ import sqlalchemy.orm
 
 import ustreamer_api.api
 import ustreamer_api.models.db
-import ustreamer_api.worker
+import ustreamer_api.worker._capture
+import ustreamer_api.worker.main
+import ustreamer_api.worker.render
 
 JOB_COUNT = 10
 EVENT_DURATION = 60
@@ -81,20 +83,20 @@ def test_worker_main_submits_ten_api_created_jobs(monkeypatch, tmp_path) -> None
     submitted_jobs: list[tuple[object, uuid.UUID, object]] = []
     executor_instances: list[_FakeExecutor] = []
 
-    monkeypatch.setattr(ustreamer_api.worker.multiprocessing, "cpu_count", lambda: JOB_COUNT)
+    monkeypatch.setattr(ustreamer_api.worker.main.multiprocessing, "cpu_count", lambda: JOB_COUNT)
     monkeypatch.setattr(
-        ustreamer_api.worker.concurrent.futures,
+        ustreamer_api.worker.main.concurrent.futures,
         "ProcessPoolExecutor",
         lambda max_workers: executor_instances.append(_FakeExecutor(submitted_jobs, max_workers)) or executor_instances[-1],
     )
     monkeypatch.setattr(
-        ustreamer_api.worker.time,
+        ustreamer_api.worker.main.time,
         "sleep",
         lambda _: (_ for _ in ()).throw(_StopWorker()),
     )
 
     try:
-        ustreamer_api.worker.worker_main()
+        ustreamer_api.worker.main.worker_main()
     except _StopWorker:
         pass
 
@@ -105,20 +107,20 @@ def test_worker_main_submits_ten_api_created_jobs(monkeypatch, tmp_path) -> None
 
 
 def test_process_job_persists_execute_side_effects(monkeypatch, tmp_path) -> None:
-    """Process job loads the row, runs execute, and commits the changes."""
+    """Process job loads the row, runs capture, and commits the changes."""
     db_file, created_job_ids = _create_timelapses_via_api(monkeypatch, tmp_path, count=1)
     job_id = created_job_ids[0]
-    settings = ustreamer_api.worker.WorkerSettings()
+    settings = ustreamer_api.worker.main.WorkerSettings()
 
     monkeypatch.setattr(
-        ustreamer_api.models.db.Timelapse,
-        "execute",
-        lambda self: setattr(self, "ended_at", self.started_at),
+        ustreamer_api.worker.main,
+        "capture_timelapse",
+        lambda timelapse, worker_settings: setattr(timelapse, "ended_at", timelapse.started_at),
     )
-    monkeypatch.setattr(ustreamer_api.worker.random, "randint", lambda start, end: 0)
-    monkeypatch.setattr(ustreamer_api.worker.time, "sleep", lambda _: None)
+    monkeypatch.setattr(ustreamer_api.worker.main.random, "randint", lambda start, end: 0)
+    monkeypatch.setattr(ustreamer_api.worker.main.time, "sleep", lambda _: None)
 
-    result = ustreamer_api.worker.process_job(job_id, settings)
+    result = ustreamer_api.worker.main.process_job(job_id, settings)
 
     engine = ustreamer_api.models.db.get_engine(str(db_file))
     with sqlalchemy.orm.Session(engine) as session:
@@ -129,11 +131,15 @@ def test_process_job_persists_execute_side_effects(monkeypatch, tmp_path) -> Non
     assert job.ended_at == job.started_at
 
 
-def test_timelapse_execute_captures_frames_and_stops_on_sigint(monkeypatch, tmp_path) -> None:
-    """Execute saves captured frames and exits cleanly when interrupted."""
+def test_process_job_captures_frames_and_stops_on_sigint(monkeypatch, tmp_path) -> None:
+    """Process job saves captured frames and exits cleanly when interrupted."""
     captured_handlers: dict[int, object] = {}
     fake_now = {"value": 0.0}
     request_count = {"value": 0}
+    interrupt_sent = {"value": False}
+    render_calls: list[tuple[pathlib.Path, float, pathlib.Path]] = []
+    db_file, created_job_ids = _create_timelapses_via_api(monkeypatch, tmp_path, count=1)
+    job_id = created_job_ids[0]
 
     class _FakeResponse:
         """Provide a minimal successful HTTP response."""
@@ -163,47 +169,90 @@ def test_timelapse_execute_captures_frames_and_stops_on_sigint(monkeypatch, tmp_
     def _fake_sleep(duration: float) -> None:
         """Advance fake time and request shutdown after the second capture."""
         fake_now["value"] += duration
-        if request_count["value"] >= 2:
-            handler = captured_handlers[signal.SIGINT]
+        if request_count["value"] >= 2 and not interrupt_sent["value"]:
+            handler = captured_handlers.get(signal.SIGINT)
+            if not callable(handler):
+                return
+            interrupt_sent["value"] = True
             handler(signal.SIGINT, None)
 
     monkeypatch.setattr(
-        ustreamer_api.models.db.settings,
+        ustreamer_api.worker._capture,
         "get_common_settings",
         lambda: types.SimpleNamespace(
             data_dir=tmp_path,
-            db_file=":memory:",
+            db_file=str(db_file),
         ),
     )
+    monkeypatch.setattr(ustreamer_api.worker._capture.httpx, "Client", lambda timeout: _FakeClient())
+    monkeypatch.setattr(ustreamer_api.worker._capture.time, "monotonic", lambda: fake_now["value"])
+    monkeypatch.setattr(ustreamer_api.worker._capture.time, "sleep", _fake_sleep)
+    monkeypatch.setattr(ustreamer_api.worker.main.random, "randint", lambda start, end: 0)
+    monkeypatch.setattr(ustreamer_api.worker._capture.signal, "getsignal", lambda signum: None)
     monkeypatch.setattr(
-        ustreamer_api.models.db.settings,
-        "get_worker_settings",
-        lambda: types.SimpleNamespace(
-            ustreamer_url="http://camera.local",
-        ),
-    )
-    monkeypatch.setattr(ustreamer_api.models.db.httpx, "Client", lambda timeout: _FakeClient())
-    monkeypatch.setattr(ustreamer_api.models.db.time, "monotonic", lambda: fake_now["value"])
-    monkeypatch.setattr(ustreamer_api.models.db.time, "sleep", _fake_sleep)
-    monkeypatch.setattr(ustreamer_api.models.db.signal, "getsignal", lambda signum: None)
-    monkeypatch.setattr(
-        ustreamer_api.models.db.signal,
+        ustreamer_api.worker._capture.signal,
         "signal",
         lambda signum, handler: captured_handlers.__setitem__(signum, handler),
     )
-
-    timelapse = ustreamer_api.models.db.Timelapse(
-        event_duration=EVENT_DURATION,
-        target_duration=TARGET_DURATION,
-        target_fps=TARGET_FPS,
+    monkeypatch.setattr(
+        ustreamer_api.worker._capture,
+        "render_video",
+        lambda image_dir, target_fps, output_file: render_calls.append((image_dir, target_fps, output_file)),
+    )
+    result = ustreamer_api.worker.main.process_job(
+        job_id,
+        types.SimpleNamespace(ustreamer_url="http://camera.local"),
     )
 
-    timelapse.execute()
+    engine = ustreamer_api.models.db.get_engine(str(db_file))
+    with sqlalchemy.orm.Session(engine) as session:
+        timelapse = session.get(ustreamer_api.models.db.Timelapse, job_id)
 
+    assert timelapse is not None
     output_dir = tmp_path / f"{timelapse.started_at.strftime('%Y-%m-%dT%H-%M-%S')}_{timelapse.id.hex}"
     frame_paths = sorted(output_dir.glob("frame-*.jpg"))
 
+    assert result == job_id
     assert request_count["value"] == 2
     assert [path.name for path in frame_paths] == ["frame-000000.jpg", "frame-000001.jpg"]
     assert all(path.read_bytes() == b"frame-bytes" for path in frame_paths)
     assert timelapse.ended_at is not None
+    assert render_calls == []
+
+
+def test_render_video_removes_image_dir(monkeypatch, tmp_path) -> None:
+    """Render video removes the image directory after ffmpeg succeeds."""
+    image_dir = tmp_path / "frames"
+    output_file = tmp_path / "timelapse.mp4"
+    image_dir.mkdir()
+    (image_dir / "frame-000000.jpg").write_bytes(b"frame-bytes")
+    subprocess_calls: list[list[str]] = []
+
+    monkeypatch.setattr(
+        ustreamer_api.worker.render.subprocess,
+        "run",
+        lambda args, **kwargs: subprocess_calls.append(args),
+    )
+
+    ustreamer_api.worker.render.render_video(image_dir, TARGET_FPS, output_file)
+
+    assert not image_dir.exists()
+    assert subprocess_calls == [
+        [
+            "ffmpeg",
+            "-y",
+            "-framerate",
+            str(TARGET_FPS),
+            "-i",
+            str(image_dir / "frame-%06d.jpg"),
+            "-c:v",
+            "libx264",
+            "-preset",
+            "slow",
+            "-crf",
+            "18",
+            "-pix_fmt",
+            "yuv420p",
+            str(output_file),
+        ]
+    ]
