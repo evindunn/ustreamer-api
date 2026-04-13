@@ -22,7 +22,7 @@ def _utc_now() -> datetime.datetime:
     return datetime.datetime.now(UTC)
 
 
-def render_video(image_dir: pathlib.Path, output_file: pathlib.Path) -> None:
+def render_video(image_dir: pathlib.Path, target_fps: float, output_file: pathlib.Path) -> None:
     """Render a timelapse video from captured images."""
     pass
 
