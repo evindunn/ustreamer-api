@@ -29,4 +29,3 @@ def render_video(image_dir: pathlib.Path, target_fps: float, output_file: pathli
         check=True,
         capture_output=True,
     )
-    shutil.rmtree(image_dir)

@@ -1,5 +1,6 @@
 import datetime
 import functools
+import pathlib
 import typing
 import uuid
 import zoneinfo
@@ -21,7 +22,13 @@ def _utc_now() -> datetime.datetime:
 class Timelapse(SQLModel, table=True):
     """Database model representing a timelapse capture session."""
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
-    started_at: datetime.datetime = Field(default_factory=_utc_now)
+    started_at: datetime.datetime = Field(
+        default_factory=_utc_now,
+        sa_column=sqlalchemy.Column(
+            sqlalchemy.DateTime(timezone=True), 
+            nullable=False
+        ),
+    )
     event_duration: float
     target_duration: float
     target_fps: float
@@ -32,6 +39,19 @@ class Timelapse(SQLModel, table=True):
         """Calculate the interval between shots in seconds."""
         total_frames = self.target_duration * self.target_fps
         return self.event_duration / total_frames
+    
+    @property
+    def name(self) -> str:
+        """Generate a name for the timelapse based on the start time and id."""
+        return f"{self.started_at.strftime('%Y-%m-%dT%H-%M-%S')}_{self.id.hex}"
+
+    def image_dir(self, data_dir: pathlib.Path) -> pathlib.Path:
+        """Return the directory containing captured frames for this timelapse."""
+        return data_dir / self.name
+
+    def output_file(self, data_dir: pathlib.Path) -> pathlib.Path:
+        """Return the rendered video path for this timelapse."""
+        return data_dir / f"{self.name}.mp4"
 
     def end(self) -> None:
         """Mark the timelapse as ended by setting the ended_at field to the current time."""

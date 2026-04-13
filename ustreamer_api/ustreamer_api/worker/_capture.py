@@ -1,3 +1,5 @@
+import shutil
+
 import httpx
 import signal
 import time
@@ -12,11 +14,13 @@ from ._render import render_video
 def capture_timelapse(timelapse: Timelapse, settings: WorkerSettings) -> None:
     """Capture frames for a timelapse and render the resulting video."""
     stop_requested = False
-    timelapse_name = f"{timelapse.started_at.strftime('%Y-%m-%dT%H-%M-%S')}_{timelapse.id.hex}"
     common_settings = get_common_settings()
-    output_dir = common_settings.data_dir / timelapse_name
-    output_file = common_settings.data_dir / f"{timelapse_name}.mp4"
+
+    output_dir = timelapse.image_dir(common_settings.data_dir)
     output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+    output_file = timelapse.output_file(common_settings.data_dir)
+
     started_at = time.monotonic()
     last_capture_at = started_at - timelapse.shot_interval
     frame_index = 0
@@ -54,3 +58,4 @@ def capture_timelapse(timelapse: Timelapse, settings: WorkerSettings) -> None:
 
     if not stop_requested:
         render_video(output_dir, timelapse.target_fps, output_file)
+        shutil.rmtree(output_dir)
