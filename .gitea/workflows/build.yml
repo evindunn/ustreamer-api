@@ -17,7 +17,7 @@ jobs:
 
       - name: Set image variables
         id: vars
-        run: echo "IMAGE=git.localdomain.net/docker/images/ustreamer-api:latest" >> $GITHUB_OUTPUT
+        run: echo "IMAGE=git.localdomain.net/docker/ustreamer/ustreamer-api:latest" >> $GITHUB_OUTPUT
 
       - name: Login to Gitea Container Registry
         uses: docker/login-action@v3
