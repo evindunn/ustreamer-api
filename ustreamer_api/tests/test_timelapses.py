@@ -1,10 +1,11 @@
 import datetime
 from fastapi.testclient import TestClient
+import sqlalchemy.orm
 
 from ustreamer_api.api import create_app
+from ustreamer_api.models.db import get_engine
 from ustreamer_api.models.db import Timelapse
 import uuid
-import zoneinfo
 
         # total_frames = self.event_duration * self.target_fps
         # return self.timelapse_duration / total_frames
@@ -107,6 +108,96 @@ def test_get_timelapse_returns_404_for_unknown_id(monkeypatch, tmp_path) -> None
 
     assert response.status_code == 404
     assert response.json() == {"detail": "Timelapse not found"}
+
+
+def test_download_timelapse_video_returns_file_for_completed_timelapse(monkeypatch, tmp_path) -> None:
+    """Downloading a completed timelapse returns the rendered video file."""
+    monkeypatch.setenv("USTREAMER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("USTREAMER_DB_FILE", ":memory:")
+
+    with TestClient(create_app()) as client:
+        create_response = client.post(
+            "/timelapses",
+            json={
+                "event_duration": EXPECTED_EVT_DURATION,
+                "target_duration": EXPECTED_TIMELAPSE_DURATION,
+                "target_fps": EXPECTED_TARGET_FPS,
+            },
+        )
+        assert create_response.status_code == 201
+
+        timelapse = Timelapse.model_validate(create_response.json())
+        output_file = timelapse.output_file(tmp_path)
+        output_file.write_bytes(b"video-bytes")
+
+        engine = get_engine(":memory:")
+        with sqlalchemy.orm.Session(engine) as session:
+            persisted_timelapse = session.get(Timelapse, timelapse.id)
+            assert persisted_timelapse is not None
+            persisted_timelapse.end()
+            session.add(persisted_timelapse)
+            session.commit()
+
+        response = client.get(f"/timelapses/{timelapse.id}/video")
+
+    assert response.status_code == 200
+    assert response.content == b"video-bytes"
+    assert response.headers["content-type"] == "video/mp4"
+
+
+def test_download_timelapse_video_returns_400_for_in_progress_timelapse(monkeypatch, tmp_path) -> None:
+    """Downloading an in-progress timelapse returns a bad-request response."""
+    monkeypatch.setenv("USTREAMER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("USTREAMER_DB_FILE", ":memory:")
+
+    with TestClient(create_app()) as client:
+        create_response = client.post(
+            "/timelapses",
+            json={
+                "event_duration": EXPECTED_EVT_DURATION,
+                "target_duration": EXPECTED_TIMELAPSE_DURATION,
+                "target_fps": EXPECTED_TARGET_FPS,
+            },
+        )
+        assert create_response.status_code == 201
+
+        timelapse = Timelapse.model_validate(create_response.json())
+        response = client.get(f"/timelapses/{timelapse.id}/video")
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Timelapse is still in progress"}
+
+
+def test_download_timelapse_video_returns_404_when_file_is_missing(monkeypatch, tmp_path) -> None:
+    """Downloading a completed timelapse without a video file returns not found."""
+    monkeypatch.setenv("USTREAMER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("USTREAMER_DB_FILE", ":memory:")
+
+    with TestClient(create_app()) as client:
+        create_response = client.post(
+            "/timelapses",
+            json={
+                "event_duration": EXPECTED_EVT_DURATION,
+                "target_duration": EXPECTED_TIMELAPSE_DURATION,
+                "target_fps": EXPECTED_TARGET_FPS,
+            },
+        )
+        assert create_response.status_code == 201
+
+        timelapse = Timelapse.model_validate(create_response.json())
+
+        engine = get_engine(":memory:")
+        with sqlalchemy.orm.Session(engine) as session:
+            persisted_timelapse = session.get(Timelapse, timelapse.id)
+            assert persisted_timelapse is not None
+            persisted_timelapse.end()
+            session.add(persisted_timelapse)
+            session.commit()
+
+        response = client.get(f"/timelapses/{timelapse.id}/video")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Timelapse video not found"}
 
 
 def test_delete_timelapse_removes_record_and_worker_artifacts(monkeypatch, tmp_path) -> None:

@@ -2,6 +2,7 @@ import fastapi
 import shutil
 import sqlalchemy
 import uuid
+import fastapi.responses
 
 from .models.db import DatabaseSession, Timelapse
 from .models.api import StartTimelapseRequest
@@ -52,6 +53,38 @@ async def get_timelapse(
             detail="Timelapse not found",
         )
     return timelapse
+
+
+@base_router.get("/timelapses/{timelapse_id}/video")
+async def download_timelapse_video(
+    timelapse_id: uuid.UUID,
+    db: DatabaseSession,
+) -> fastapi.responses.FileResponse:
+    """Return the rendered video for a completed timelapse."""
+    timelapse = db.get(Timelapse, timelapse_id)
+    if timelapse is None:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_404_NOT_FOUND,
+            detail="Timelapse not found",
+        )
+    if timelapse.ended_at is None:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_400_BAD_REQUEST,
+            detail="Timelapse is still in progress",
+        )
+
+    output_file = timelapse.output_file(get_common_settings().data_dir)
+    if not output_file.exists():
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_404_NOT_FOUND,
+            detail="Timelapse video not found",
+        )
+
+    return fastapi.responses.FileResponse(
+        output_file,
+        media_type="video/mp4",
+        filename=output_file.name,
+    )
 
 
 @base_router.delete(
