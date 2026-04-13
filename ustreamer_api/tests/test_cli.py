@@ -1,4 +1,5 @@
 import json
+import pathlib
 import ssl
 
 import click.testing
@@ -10,8 +11,9 @@ import ustreamer_api.worker.main
 class _FakeResponse:
     """Provide a minimal urllib response object for CLI tests."""
 
-    def __init__(self, body: bytes) -> None:
+    def __init__(self, body: bytes, headers: dict[str, str] | None = None) -> None:
         self.body = body
+        self.headers = headers or {}
 
     def __enter__(self) -> "_FakeResponse":
         return self
@@ -192,6 +194,95 @@ def test_client_delete_sends_delete_request(monkeypatch) -> None:
     assert captured_url == "https://picam.localdomain.net/api/timelapses/1234"
     assert captured_method == "DELETE"
     assert captured_context is None
+
+
+def test_client_download_saves_video_with_server_filename(monkeypatch, tmp_path) -> None:
+    """Client download saves the file using the response filename."""
+    runner = click.testing.CliRunner()
+    captured_url: str | None = None
+    captured_method: str | None = None
+    captured_context: object | None = object()
+
+    def _fake_urlopen(request, context=None) -> _FakeResponse:
+        """Capture the outgoing request and return a fake download response."""
+        nonlocal captured_url, captured_method, captured_context
+        captured_url = request.full_url
+        captured_method = request.get_method()
+        captured_context = context
+        return _FakeResponse(
+            b"video-bytes",
+            headers={"Content-Disposition": 'attachment; filename="timelapse.mp4"'},
+        )
+
+    monkeypatch.setattr(ustreamer_api._cli.urllib.request, "urlopen", _fake_urlopen)
+
+    with runner.isolated_filesystem(temp_dir=str(tmp_path)):
+        download_root = pathlib.Path.cwd()
+        result = runner.invoke(
+            ustreamer_api._cli.cli,
+            ["client", "download", "1234"],
+            env={
+                "USTREAMER_CA_CERTS": "",
+                "USTREAMER_API_BASE_URL": "https://picam.localdomain.net/api",
+            },
+        )
+        downloaded_file = download_root / "timelapse.mp4"
+
+        assert result.exit_code == 0
+        assert downloaded_file.read_bytes() == b"video-bytes"
+        assert captured_url == "https://picam.localdomain.net/api/timelapses/1234/video"
+        assert captured_method == "GET"
+        assert captured_context is None
+
+
+def test_client_download_honors_output_path(monkeypatch, tmp_path) -> None:
+    """Client download writes to the requested output path."""
+    runner = click.testing.CliRunner()
+
+    monkeypatch.setattr(
+        ustreamer_api._cli.urllib.request,
+        "urlopen",
+        lambda request, context=None: _FakeResponse(b"video-bytes"),
+    )
+
+    with runner.isolated_filesystem(temp_dir=str(tmp_path)):
+        download_root = pathlib.Path.cwd()
+        result = runner.invoke(
+            ustreamer_api._cli.cli,
+            ["client", "download", "1234", "--output", "downloads/custom.mp4"],
+            env={
+                "USTREAMER_CA_CERTS": "",
+                "USTREAMER_API_BASE_URL": "https://picam.localdomain.net/api",
+            },
+        )
+        downloaded_file = download_root / "downloads" / "custom.mp4"
+
+        assert result.exit_code == 0
+        assert downloaded_file.read_bytes() == b"video-bytes"
+
+
+def test_client_download_requires_output_without_server_filename(monkeypatch, tmp_path) -> None:
+    """Client download fails when neither --output nor a server filename is provided."""
+    runner = click.testing.CliRunner()
+
+    monkeypatch.setattr(
+        ustreamer_api._cli.urllib.request,
+        "urlopen",
+        lambda request, context=None: _FakeResponse(b"video-bytes"),
+    )
+
+    with runner.isolated_filesystem(temp_dir=str(tmp_path)):
+        result = runner.invoke(
+            ustreamer_api._cli.cli,
+            ["client", "download", "1234"],
+            env={
+                "USTREAMER_CA_CERTS": "",
+                "USTREAMER_API_BASE_URL": "https://picam.localdomain.net/api",
+            },
+        )
+
+        assert result.exit_code != 0
+        assert "please specify --output" in result.output
 
 
 def test_client_create_loads_ca_certs(monkeypatch, tmp_path) -> None:

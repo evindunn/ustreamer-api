@@ -2,6 +2,7 @@ import certifi
 import click
 import json
 import os
+import pathlib
 import ssl
 import typing
 import urllib.request
@@ -15,6 +16,17 @@ DEFAULT_CLIENT_BASE_URL = "https://picam.localdomain.net/api"
 @click.group()
 def cli() -> None:
     pass
+
+
+def _download_filename(headers: typing.Mapping[str, str]) -> str | None:
+    """Return a local filename for a downloaded timelapse video."""
+    content_disposition = headers.get("Content-Disposition", "")
+    parts = [part.strip() for part in content_disposition.split(";")]
+    for part in parts:
+        if part.startswith("filename="):
+            return part.removeprefix("filename=").strip('"')
+    return None
+
 
 @cli.command()
 @click.option("--host", default="127.0.0.1", show_default=True, help="Host interface to bind.")
@@ -85,6 +97,28 @@ def list(
     ssl_context = typing.cast(dict[str, ssl.SSLContext | None], ctx.obj)["ssl_context"]
     with urllib.request.urlopen(request, context=ssl_context) as response:
         click.echo(response.read().decode("utf-8"))
+
+
+@client.command()
+@click.argument("timelapse_id")
+@click.option("--output", type=click.Path(path_type=pathlib.Path), help="Write the downloaded video to this path.")
+@click.pass_context
+def download(ctx: click.Context, timelapse_id: str, output: pathlib.Path | None) -> None:
+    """Download a completed timelapse video via the ustreamer API."""
+    request = urllib.request.Request(
+        f"{ctx.obj['base_url'].rstrip('/')}/timelapses/{timelapse_id}/video",
+        method="GET",
+    )
+
+    ssl_context = typing.cast(dict[str, ssl.SSLContext | None], ctx.obj)["ssl_context"]
+    with urllib.request.urlopen(request, context=ssl_context) as response:
+        downloaded_filename = _download_filename(response.headers)
+        if output is None and downloaded_filename is None:
+            raise click.ClickException("The server did not provide a filename; please specify --output.")
+        target = output or pathlib.Path(typing.cast(str, downloaded_filename))
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(response.read())
+        click.echo(str(target))
 
 
 @client.command()
