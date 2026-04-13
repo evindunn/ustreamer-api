@@ -33,7 +33,7 @@ services:
       - "--quality=${QUALITY:-80}"
 
   ustreamer_api:
-    image: "git.localdomain.net/docker/ustreamer:latest"
+    image: "git.localdomain.net/docker/ustreamer-api:latest"
     restart: unless-stopped
     depends_on:
       - ustreamer
@@ -53,7 +53,7 @@ services:
       - "ustreamer_api_data:/data"
 
   ustreamer_worker:
-    image: "git.localdomain.net/docker/ustreamer:latest"
+    image: "git.localdomain.net/docker/ustreamer-api:latest"
     restart: unless-stopped
     command: ["ustreamer-api", "worker"]
     depends_on:

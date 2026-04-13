@@ -2,13 +2,14 @@ name: deploy ustreamer
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     paths-ignore:
       - 'ustreamer_api/**'
   registry_package:
     type:
       - published
-  workflow_dispatch: {}
+      - updated
+  workflow_dispatch: {}   # Manual Run button
 
 jobs:
   deploy:
@@ -16,7 +17,7 @@ jobs:
     if: > 
       github.event_name != 'registry_package' ||
       (
-        github.event.registry_package.name == 'ustreamer' &&
+        github.event.registry_package.name == 'ustreamer-api' &&
         github.event.registry_package.package_version.container_metadata.tag.name == 'latest'
       )
     steps:
