@@ -5,20 +5,54 @@ import multiprocessing
 import random
 import signal
 import time
+import typing
 import uuid
 
 import sqlalchemy
 import sqlalchemy.orm
 
-from .settings import Settings
+from .settings import WorkerSettings, get_worker_settings
 from .models.db import get_engine, Timelapse
 
 
-base_logger = logging.getLogger(__package__)
+_LOG_ROOT = __name__.split(".")[0]
+base_logger = logging.getLogger(__name__)
+
+
+class _PackageOnlyFilter(logging.Filter):
+    """Allow only logs rooted in the ustreamer_api package."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        """Return whether the log record belongs to the package logger tree."""
+        return record.name == _LOG_ROOT or record.name.startswith(f"{_LOG_ROOT}.")
+
+
+def _configure_logging(settings: WorkerSettings) -> None:
+    """Configure worker logging based on the application settings."""
+    log_level = logging.getLevelNamesMapping()[settings.log_level]
+    root_logger = logging.getLogger()
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter(
+            fmt="[%(asctime)s][%(levelname)s][%(name)s]: %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S%z",
+        )
+    )
+
+    if log_level > logging.DEBUG:
+        package_filter = _PackageOnlyFilter()
+        handler.addFilter(package_filter)
+        for logger_name, logger_obj in root_logger.manager.loggerDict.items():
+            if isinstance(logger_obj, logging.Logger) and not (
+                logger_name == __package__ or logger_name.startswith(f"{__package__}.")
+            ):
+                logger_obj.disabled = True
+
+    logging.basicConfig(level=log_level, handlers=[handler], force=True)
 
 
 @contextlib.contextmanager
-def _get_db_engine(settings: Settings) -> sqlalchemy.Engine:
+def _get_db_engine(settings: WorkerSettings) -> typing.Iterator[sqlalchemy.Engine]:
     """Create and return a new database session."""
     engine = get_engine(settings.db_file)
     try:
@@ -27,7 +61,7 @@ def _get_db_engine(settings: Settings) -> sqlalchemy.Engine:
         engine.dispose()
 
 
-def process_job(job_id: uuid.UUID, settings: Settings) -> uuid.UUID:
+def process_job(job_id: uuid.UUID, settings: WorkerSettings) -> uuid.UUID:
     """Fetch a the job with the given id from the database and start generating the timelapse frames."""
     logger = base_logger.getChild("pid-%d" % multiprocessing.current_process().pid)
     logger.info(f"Processing job {job_id}...")
@@ -49,14 +83,10 @@ def process_job(job_id: uuid.UUID, settings: Settings) -> uuid.UUID:
 
 
 def worker_main():
-    logging.basicConfig(
-        level=logging.INFO, 
-        format="[%(asctime)s][%(levelname)s][%(name)s]: %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S%z"
-    )
-
     """Worker process function to perform background tasks."""
-    settings = Settings()
+    settings = get_worker_settings()
+    _configure_logging(settings)
+
     stop_requested = False
 
     def _handle_sigint(signum: int, frame) -> None:

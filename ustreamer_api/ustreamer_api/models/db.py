@@ -47,7 +47,7 @@ class Timelapse(SQLModel, table=True):
             stop_requested = True
 
         try:
-            config = settings.get_settings()
+            config = settings.get_worker_settings()
             output_dir = config.data_dir / f"{self.started_at.strftime('%Y-%m-%dT%H-%M-%S')}_{self.id.hex}"
             output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             started_at = time.monotonic()
@@ -104,7 +104,7 @@ def get_engine(db_file: str) -> sqlalchemy.Engine:
     return engine
 
 
-def _get_session(settings: typing.Annotated[settings.Settings, Depends(settings.get_settings)]) -> typing.Generator[sqlalchemy.orm.Session, None, None]:
+def _get_session(settings: typing.Annotated[settings.APISettings, Depends(settings.get_api_settings)]) -> typing.Generator[sqlalchemy.orm.Session, None, None]:
     """Return a new database session."""
     engine = get_engine(settings.db_file)
     session = sqlalchemy.orm.Session(engine)

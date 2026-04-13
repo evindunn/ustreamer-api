@@ -56,6 +56,8 @@ def _create_timelapses_via_api(
     db_file = tmp_path / "worker-test.sqlite"
     monkeypatch.setenv("USTREAMER_API_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("USTREAMER_API_DB_FILE", str(db_file))
+    monkeypatch.setenv("USTREAMER_WORKER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("USTREAMER_WORKER_DB_FILE", str(db_file))
 
     created_job_ids: list[uuid.UUID] = []
     with fastapi.testclient.TestClient(ustreamer_api.api.create_app()) as client:
@@ -108,7 +110,7 @@ def test_process_job_persists_execute_side_effects(monkeypatch, tmp_path) -> Non
     """Process job loads the row, runs execute, and commits the changes."""
     db_file, created_job_ids = _create_timelapses_via_api(monkeypatch, tmp_path, count=1)
     job_id = created_job_ids[0]
-    settings = ustreamer_api.worker.Settings()
+    settings = ustreamer_api.worker.WorkerSettings()
 
     monkeypatch.setattr(
         ustreamer_api.models.db.Timelapse,
@@ -169,7 +171,7 @@ def test_timelapse_execute_captures_frames_and_stops_on_sigint(monkeypatch, tmp_
 
     monkeypatch.setattr(
         ustreamer_api.models.db.settings,
-        "get_settings",
+        "get_worker_settings",
         lambda: types.SimpleNamespace(
             data_dir=tmp_path,
             ustreamer_url="http://camera.local",

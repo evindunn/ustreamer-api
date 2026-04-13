@@ -4,13 +4,13 @@ from fastapi import FastAPI
 
 from .models.db import get_engine
 from .routes import base_router
-from .settings import get_settings
+from .settings import get_api_settings
 
 
 @contextlib.asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize application resources during startup."""
-    app.state.engine = get_engine(get_settings().db_file)
+    app.state.engine = get_engine(get_api_settings().db_file)
     yield
     app.state.engine.dispose()
 

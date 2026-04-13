@@ -1,4 +1,5 @@
 import functools
+import logging
 import pathlib
 
 import pydantic
@@ -10,9 +11,9 @@ def _default_data_dir() -> pathlib.Path:
     return pathlib.Path.cwd() / ".ustreamer-data"
 
 
-class Settings(pydantic_settings.BaseSettings):
-    """Application settings loaded from environment variables."""
-    model_config = pydantic_settings.SettingsConfigDict(env_prefix="USTREAMER_API_", frozen=True)
+class _CommonSettings(pydantic_settings.BaseSettings):
+    """Settings shared by the API server and worker."""
+    model_config = pydantic_settings.SettingsConfigDict(env_prefix="USTREAMER_", frozen=True)
 
     data_dir: pathlib.Path = pydantic.Field(
         default_factory=_default_data_dir,
@@ -21,10 +22,6 @@ class Settings(pydantic_settings.BaseSettings):
     db_file: str = pydantic.Field(
         default=":memory:",
         description="Path to the database file. If set to ':memory:', an in-memory database will be used.",
-    )
-    ustreamer_url: str = pydantic.Field(
-        default="http://127.0.0.1:8080",
-        description="Base URL of the uStreamer instance to control",
     )
 
     @pydantic.field_validator("data_dir", mode="after")
@@ -35,7 +32,42 @@ class Settings(pydantic_settings.BaseSettings):
         return value
 
 
+class APISettings(_CommonSettings):
+    """Settings used by the API server."""
+    model_config = pydantic_settings.SettingsConfigDict(env_prefix="USTREAMER_API_", frozen=True)
+
+
+class WorkerSettings(_CommonSettings):
+    """Settings used by the background worker."""
+    model_config = pydantic_settings.SettingsConfigDict(env_prefix="USTREAMER_WORKER_", frozen=True)
+
+    ustreamer_url: str = pydantic.Field(
+        default="http://127.0.0.1:8080",
+        description="Base URL of the uStreamer instance to control",
+    )
+
+    log_level: str = pydantic.Field(
+        default="INFO",
+        description="Log level for the worker process.",
+    )
+
+    @pydantic.field_validator("log_level", mode="after")
+    @classmethod
+    def _normalize_log_level(cls, value: str) -> str:
+        """Normalize and validate the configured worker log level."""
+        normalized_value = value.upper()
+        if normalized_value not in logging.getLevelNamesMapping():
+            raise ValueError(f"Unsupported worker log level: {value}")
+        return normalized_value
+
+
 @functools.cache
-def get_settings() -> Settings:
-    """Return a cached instance of the application settings."""
-    return Settings()
+def get_api_settings() -> APISettings:
+    """Return a cached instance of the API settings."""
+    return APISettings()
+
+
+@functools.cache
+def get_worker_settings() -> WorkerSettings:
+    """Return a cached instance of the worker settings."""
+    return WorkerSettings()
