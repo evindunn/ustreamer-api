@@ -120,6 +120,45 @@ def test_client_create_posts_payload(monkeypatch) -> None:
     assert captured_context is None
 
 
+def test_client_list_gets_paginated_timelapses(monkeypatch) -> None:
+    """Client list sends the expected paginated list request."""
+    runner = click.testing.CliRunner()
+    captured_url: str | None = None
+    captured_method: str | None = None
+    captured_context: object | None = object()
+
+    def _fake_urlopen(request, context=None) -> _FakeResponse:
+        """Capture the outgoing request and return a fake response."""
+        nonlocal captured_url, captured_method, captured_context
+        captured_url = request.full_url
+        captured_method = request.get_method()
+        captured_context = context
+        return _FakeResponse(b'[{"id":"1234"}]')
+
+    monkeypatch.setattr(ustreamer_api._cli.urllib.request, "urlopen", _fake_urlopen)
+
+    result = runner.invoke(
+        ustreamer_api._cli.cli,
+        [
+            "client",
+            "list",
+            "--base-url",
+            "https://picam.localdomain.net/api",
+            "--limit",
+            "5",
+            "--offset",
+            "10",
+        ],
+        env={"USTREAMER_CA_CERTS": ""},
+    )
+
+    assert result.exit_code == 0
+    assert result.output.strip() == '[{"id":"1234"}]'
+    assert captured_url == "https://picam.localdomain.net/api/timelapses?limit=5&offset=10"
+    assert captured_method == "GET"
+    assert captured_context is None
+
+
 def test_client_create_loads_ca_certs(monkeypatch, tmp_path) -> None:
     """Client create loads custom CA files into the SSL context."""
     runner = click.testing.CliRunner()

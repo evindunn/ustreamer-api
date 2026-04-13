@@ -9,7 +9,7 @@ import uvicorn
 
 from .worker.main import worker_main
 
-DEFAULT_BASE_URL = "https://picam.localdomain.net/api"
+DEFAULT_CLIENT_BASE_URL = "https://picam.localdomain.net/api"
 
 
 @click.group()
@@ -54,17 +54,46 @@ def client(ctx: click.Context) -> None:
             ssl_context.load_verify_locations(cafile=ca_cert)
     ctx.ensure_object(dict)
     ctx.obj["ssl_context"] = ssl_context
+    ctx.obj["base_url"] = os.environ.get("USTREAMER_API_BASE_URL", DEFAULT_CLIENT_BASE_URL)
 
 
 @client.command()
-@click.option("--base-url", default=DEFAULT_BASE_URL, show_default=True, help="Base URL for the ustreamer API.")
+@click.option("--limit", default=None, type=int, help="Maximum number of timelapses to return.")
+@click.option("--offset", default=None, type=int, help="Number of timelapses to skip before listing.")
+@click.pass_context
+def list(
+    ctx: click.Context,
+    limit: int | None,
+    offset: int | None,
+) -> None:
+    """List timelapse jobs via the ustreamer API."""
+    query_params: list[str] = []
+    if limit is not None:
+        query_params.append(f"limit={limit}")
+    if offset is not None:
+        query_params.append(f"offset={offset}")
+
+    url = f"{ctx.obj['base_url'].rstrip('/')}/timelapses"
+    if query_params:
+        url = f"{url}?{'&'.join(query_params)}"
+
+    request = urllib.request.Request(
+        url,
+        method="GET",
+    )
+
+    ssl_context = typing.cast(dict[str, ssl.SSLContext | None], ctx.obj)["ssl_context"]
+    with urllib.request.urlopen(request, context=ssl_context) as response:
+        click.echo(response.read().decode("utf-8"))
+
+
+@client.command()
 @click.option("--event-duration", default=60.0, show_default=True, type=float, help="Event duration in seconds.")
 @click.option("--target-duration", default=10.0, show_default=True, type=float, help="Target timelapse duration in seconds.")
 @click.option("--target-fps", default=24.0, show_default=True, type=float, help="Target frames per second.")
 @click.pass_context
 def create(
     ctx: click.Context,
-    base_url: str,
     event_duration: float,
     target_duration: float,
     target_fps: float,
@@ -78,7 +107,7 @@ def create(
         }
     ).encode("utf-8")
     request = urllib.request.Request(
-        f"{base_url.rstrip('/')}/timelapses",
+        f"{ctx.obj['base_url'].rstrip('/')}/timelapses",
         data=payload,
         headers={"Content-Type": "application/json"},
         method="POST",
