@@ -22,6 +22,11 @@ def _utc_now() -> datetime.datetime:
     return datetime.datetime.now(UTC)
 
 
+def render_video(image_dir: pathlib.Path, output_file: pathlib.Path) -> None:
+    """Render a timelapse video from captured images."""
+    pass
+
+
 class Timelapse(SQLModel, table=True):
     """Database model representing a timelapse capture session."""
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
@@ -40,23 +45,24 @@ class Timelapse(SQLModel, table=True):
     def execute(self) -> None:
         """Execute the timelapse capture session."""
         stop_requested = False
+        timelapse_name = f"{self.started_at.strftime('%Y-%m-%dT%H-%M-%S')}_{self.id.hex}"
 
         def _handle_sigint(signum: int, frame: typing.Any) -> None:
             """Request capture shutdown after the current loop iteration."""
             nonlocal stop_requested
             stop_requested = True
 
-        try:
-            worker_settings = settings.get_worker_settings()
-            common_settings = settings.get_common_settings()
-            output_dir = common_settings.data_dir / f"{self.started_at.strftime('%Y-%m-%dT%H-%M-%S')}_{self.id.hex}"
-            output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-            started_at = time.monotonic()
-            last_capture_at = started_at - self.shot_interval
-            frame_index = 0
-            previous_sigint_handler = signal.getsignal(signal.SIGINT)
-            signal.signal(signal.SIGINT, _handle_sigint)
+        worker_settings = settings.get_worker_settings()
+        common_settings = settings.get_common_settings()
+        output_dir = common_settings.data_dir / timelapse_name
+        output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        started_at = time.monotonic()
+        last_capture_at = started_at - self.shot_interval
+        frame_index = 0
+        previous_sigint_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, _handle_sigint)
 
+        try:
             try:
                 with httpx.Client(timeout=10.0) as client:
                     while not stop_requested:
@@ -75,9 +81,12 @@ class Timelapse(SQLModel, table=True):
 
                         time.sleep(min(0.1, self.shot_interval))
             finally:
-                signal.signal(signal.SIGINT, previous_sigint_handler)
+                self.ended_at = _utc_now()
         finally:
-            self.ended_at = _utc_now()
+            signal.signal(signal.SIGINT, previous_sigint_handler)
+
+        if not stop_requested:
+            render_video(output_dir, common_settings.data_dir / f"{timelapse_name}.mp4")
 
     @staticmethod
     def find_active_ids(session: sqlalchemy.orm.Session) -> list[uuid.UUID]:
