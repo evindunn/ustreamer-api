@@ -38,8 +38,8 @@ services:
     depends_on:
       - ustreamer
     environment:
-      USTREAMER_API_DATA_DIR: /data
-      USTREAMER_API_DB_FILE: /data/ustreamer.db
+      USTREAMER_DATA_DIR: /data
+      USTREAMER_DB_FILE: /data/ustreamer.db
       USTREAMER_API_USTREAMER_URL: http://ustreamer:8080
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz').read()"]
@@ -60,9 +60,9 @@ services:
       - ustreamer
       - ustreamer_api
     environment:
-      USTREAMER_API_DATA_DIR: /data
-      USTREAMER_API_DB_FILE: /data/ustreamer.db
-      USTREAMER_API_USTREAMER_URL: http://ustreamer:8080
+      USTREAMER_DATA_DIR: /data
+      USTREAMER_DB_FILE: /data/ustreamer.db
+      USTREAMER_WORKER_USTREAMER_URL: http://ustreamer:8080
     networks:
       - ustreamer
     volumes:
