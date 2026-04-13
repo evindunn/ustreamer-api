@@ -5,6 +5,7 @@ import os
 import pathlib
 import ssl
 import typing
+import urllib.error
 import urllib.request
 import uvicorn
 
@@ -26,6 +27,24 @@ def _download_filename(headers: typing.Mapping[str, str]) -> str | None:
         if part.startswith("filename="):
             return part.removeprefix("filename=").strip('"')
     return None
+
+
+def _raise_client_http_error(exc: urllib.error.HTTPError) -> typing.NoReturn:
+    """Print a JSON error envelope for an HTTP error and exit non-zero."""
+    response_body = exc.read().decode("utf-8")
+    try:
+        parsed_body: typing.Any = json.loads(response_body) if response_body else None
+    except json.JSONDecodeError:
+        parsed_body = response_body
+    click.echo(
+        json.dumps(
+            {
+                "status": exc.code,
+                "body": parsed_body,
+            }
+        )
+    )
+    raise click.exceptions.Exit(1)
 
 
 @cli.command()
@@ -95,7 +114,11 @@ def list(
     )
 
     ssl_context = typing.cast(dict[str, ssl.SSLContext | None], ctx.obj)["ssl_context"]
-    with urllib.request.urlopen(request, context=ssl_context) as response:
+    try:
+        response = urllib.request.urlopen(request, context=ssl_context)
+    except urllib.error.HTTPError as exc:
+        _raise_client_http_error(exc)
+    with response:
         click.echo(response.read().decode("utf-8"))
 
 
@@ -111,7 +134,11 @@ def download(ctx: click.Context, timelapse_id: str, output: pathlib.Path | None)
     )
 
     ssl_context = typing.cast(dict[str, ssl.SSLContext | None], ctx.obj)["ssl_context"]
-    with urllib.request.urlopen(request, context=ssl_context) as response:
+    try:
+        response = urllib.request.urlopen(request, context=ssl_context)
+    except urllib.error.HTTPError as exc:
+        _raise_client_http_error(exc)
+    with response:
         downloaded_filename = _download_filename(response.headers)
         if output is None and downloaded_filename is None:
             raise click.ClickException("The server did not provide a filename; please specify --output.")
@@ -132,7 +159,11 @@ def delete(ctx: click.Context, timelapse_id: str) -> None:
     )
 
     ssl_context = typing.cast(dict[str, ssl.SSLContext | None], ctx.obj)["ssl_context"]
-    with urllib.request.urlopen(request, context=ssl_context) as response:
+    try:
+        response = urllib.request.urlopen(request, context=ssl_context)
+    except urllib.error.HTTPError as exc:
+        _raise_client_http_error(exc)
+    with response:
         click.echo(response.read().decode("utf-8"))
 
 
@@ -163,5 +194,9 @@ def create(
     )
 
     ssl_context = typing.cast(dict[str, ssl.SSLContext | None], ctx.obj)["ssl_context"]
-    with urllib.request.urlopen(request, context=ssl_context) as response:
+    try:
+        response = urllib.request.urlopen(request, context=ssl_context)
+    except urllib.error.HTTPError as exc:
+        _raise_client_http_error(exc)
+    with response:
         click.echo(response.read().decode("utf-8"))

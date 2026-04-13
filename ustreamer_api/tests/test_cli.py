@@ -1,8 +1,11 @@
+import io
 import json
 import pathlib
 import ssl
 
 import click.testing
+import pytest
+import urllib.error
 
 import ustreamer_api._cli
 import ustreamer_api.worker.main
@@ -283,6 +286,53 @@ def test_client_download_requires_output_without_server_filename(monkeypatch, tm
 
         assert result.exit_code != 0
         assert "please specify --output" in result.output
+
+
+@pytest.mark.parametrize(
+    ("command_args", "expected_url"),
+    [
+        (["client", "create"], "https://picam.localdomain.net/api/timelapses"),
+        (["client", "list"], "https://picam.localdomain.net/api/timelapses"),
+        (["client", "delete", "1234"], "https://picam.localdomain.net/api/timelapses/1234"),
+        (["client", "download", "1234", "--output", "video.mp4"], "https://picam.localdomain.net/api/timelapses/1234/video"),
+    ],
+)
+def test_client_commands_return_json_http_errors(monkeypatch, tmp_path, command_args, expected_url) -> None:
+    """Client commands emit JSON error envelopes for HTTP errors."""
+    runner = click.testing.CliRunner()
+    captured_url: str | None = None
+
+    def _fake_urlopen(request, context=None):
+        """Raise a structured HTTP error for the outgoing request."""
+        del context
+        nonlocal captured_url
+        captured_url = request.full_url
+        raise urllib.error.HTTPError(
+            url=request.full_url,
+            code=404,
+            msg="Not Found",
+            hdrs=None,
+            fp=io.BytesIO(b'{"detail":"Timelapse not found"}'),
+        )
+
+    monkeypatch.setattr(ustreamer_api._cli.urllib.request, "urlopen", _fake_urlopen)
+
+    with runner.isolated_filesystem(temp_dir=str(tmp_path)):
+        result = runner.invoke(
+            ustreamer_api._cli.cli,
+            command_args,
+            env={
+                "USTREAMER_CA_CERTS": "",
+                "USTREAMER_API_BASE_URL": "https://picam.localdomain.net/api",
+            },
+        )
+
+    assert result.exit_code == 1
+    assert json.loads(result.output) == {
+        "status": 404,
+        "body": {"detail": "Timelapse not found"},
+    }
+    assert captured_url == expected_url
 
 
 def test_client_create_loads_ca_certs(monkeypatch, tmp_path) -> None:
