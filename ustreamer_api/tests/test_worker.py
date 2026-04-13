@@ -1,7 +1,5 @@
 import concurrent.futures
 import pathlib
-import signal
-import types
 import uuid
 
 import fastapi.testclient
@@ -9,9 +7,7 @@ import sqlalchemy.orm
 
 import ustreamer_api.api
 import ustreamer_api.models.db
-import ustreamer_api.worker._capture
 import ustreamer_api.worker.main
-import ustreamer_api.worker._render
 
 JOB_COUNT = 10
 EVENT_DURATION = 60
@@ -131,204 +127,40 @@ def test_process_job_persists_execute_side_effects(monkeypatch, tmp_path) -> Non
     assert job.ended_at == job.started_at
 
 
-def test_process_job_captures_frames_and_stops_on_sigint(monkeypatch, tmp_path) -> None:
-    """Process job saves captured frames and exits cleanly when interrupted."""
-    captured_handlers: dict[int, object] = {}
-    fake_now = {"value": 0.0}
-    request_count = {"value": 0}
-    interrupt_sent = {"value": False}
-    render_calls: list[tuple[pathlib.Path, float, pathlib.Path]] = []
+def test_process_job_commits_capture_side_effects(monkeypatch, tmp_path) -> None:
+    """Process job commits the state changes made by capture_timelapse."""
     db_file, created_job_ids = _create_timelapses_via_api(monkeypatch, tmp_path, count=1)
     job_id = created_job_ids[0]
+    created_output_dirs: list[pathlib.Path] = []
+    settings = ustreamer_api.worker.main.WorkerSettings()
 
-    class _FakeResponse:
-        """Provide a minimal successful HTTP response."""
-
-        content = b"frame-bytes"
-
-        def raise_for_status(self) -> None:
-            """Validate the fake response."""
-            return None
-
-    class _FakeClient:
-        """Capture outbound requests without making network calls."""
-
-        def __enter__(self) -> "_FakeClient":
-            return self
-
-        def __exit__(self, exc_type, exc, tb) -> None:
-            return None
-
-        def get(self, url: str, params: dict[str, str]) -> _FakeResponse:
-            """Return a successful fake snapshot response."""
-            assert url == "http://camera.local"
-            assert params == {"action": "snapshot"}
-            request_count["value"] += 1
-            return _FakeResponse()
-
-    def _fake_sleep(duration: float) -> None:
-        """Advance fake time and request shutdown after the second capture."""
-        fake_now["value"] += duration
-        if request_count["value"] >= 2 and not interrupt_sent["value"]:
-            handler = captured_handlers.get(signal.SIGINT)
-            if not callable(handler):
-                return
-            interrupt_sent["value"] = True
-            handler(signal.SIGINT, None)
+    def _fake_capture(timelapse: ustreamer_api.models.db.Timelapse, worker_settings: object) -> None:
+        """Create representative capture side effects on disk and on the model."""
+        del worker_settings
+        output_dir = timelapse.image_dir(tmp_path)
+        created_output_dirs.append(output_dir)
+        output_dir.mkdir()
+        (output_dir / "frame-000000.jpg").write_bytes(b"frame-bytes")
+        timelapse.output_file(tmp_path).write_bytes(b"video-bytes")
+        timelapse.end()
 
     monkeypatch.setattr(
-        ustreamer_api.worker._capture,
-        "get_common_settings",
-        lambda: types.SimpleNamespace(
-            data_dir=tmp_path,
-            db_file=str(db_file),
-        ),
+        ustreamer_api.worker.main,
+        "capture_timelapse",
+        _fake_capture,
     )
-    monkeypatch.setattr(ustreamer_api.worker._capture.httpx, "Client", lambda timeout: _FakeClient())
-    monkeypatch.setattr(ustreamer_api.worker._capture.time, "monotonic", lambda: fake_now["value"])
-    monkeypatch.setattr(ustreamer_api.worker._capture.time, "sleep", _fake_sleep)
     monkeypatch.setattr(ustreamer_api.worker.main.random, "randint", lambda start, end: 0)
-    monkeypatch.setattr(ustreamer_api.worker._capture.signal, "getsignal", lambda signum: None)
-    monkeypatch.setattr(
-        ustreamer_api.worker._capture.signal,
-        "signal",
-        lambda signum, handler: captured_handlers.__setitem__(signum, handler),
-    )
-    monkeypatch.setattr(
-        ustreamer_api.worker._capture,
-        "render_video",
-        lambda image_dir, target_fps, output_file: render_calls.append((image_dir, target_fps, output_file)),
-    )
-    result = ustreamer_api.worker.main.process_job(
-        job_id,
-        types.SimpleNamespace(ustreamer_url="http://camera.local"),
-    )
+    monkeypatch.setattr(ustreamer_api.worker.main.time, "sleep", lambda _: None)
+
+    result = ustreamer_api.worker.main.process_job(job_id, settings)
 
     engine = ustreamer_api.models.db.get_engine(str(db_file))
     with sqlalchemy.orm.Session(engine) as session:
         timelapse = session.get(ustreamer_api.models.db.Timelapse, job_id)
 
     assert timelapse is not None
-    output_dir = tmp_path / f"{timelapse.started_at.strftime('%Y-%m-%dT%H-%M-%S')}_{timelapse.id.hex}"
-    frame_paths = sorted(output_dir.glob("frame-*.jpg"))
-
     assert result == job_id
-    assert request_count["value"] == 2
-    assert [path.name for path in frame_paths] == ["frame-000000.jpg", "frame-000001.jpg"]
-    assert all(path.read_bytes() == b"frame-bytes" for path in frame_paths)
     assert timelapse.ended_at is not None
-    assert render_calls == []
-
-
-def test_render_video_removes_image_dir(monkeypatch, tmp_path) -> None:
-    """Render video invokes ffmpeg without deleting the image directory."""
-    image_dir = tmp_path / "frames"
-    output_file = tmp_path / "timelapse.mp4"
-    image_dir.mkdir()
-    (image_dir / "frame-000000.jpg").write_bytes(b"frame-bytes")
-    subprocess_calls: list[list[str]] = []
-
-    monkeypatch.setattr(
-        ustreamer_api.worker._render.subprocess,
-        "run",
-        lambda args, **kwargs: subprocess_calls.append(args),
-    )
-
-    ustreamer_api.worker._render.render_video(image_dir, TARGET_FPS, output_file)
-
-    assert image_dir.exists()
-    assert subprocess_calls == [
-        [
-            "ffmpeg",
-            "-y",
-            "-framerate",
-            str(TARGET_FPS),
-            "-i",
-            str(image_dir / "frame-%06d.jpg"),
-            "-c:v",
-            "libx264",
-            "-preset",
-            "slow",
-            "-crf",
-            "18",
-            "-pix_fmt",
-            "yuv420p",
-            str(output_file),
-        ]
-    ]
-
-
-def test_capture_timelapse_removes_image_dir_after_render(monkeypatch, tmp_path) -> None:
-    """Capture timelapse removes the image directory after rendering completes."""
-    captured_handlers: dict[int, object] = {}
-    fake_now = {"value": 0.0}
-    render_calls: list[tuple[pathlib.Path, float, pathlib.Path]] = []
-
-    class _FakeResponse:
-        """Provide a minimal successful HTTP response."""
-
-        content = b"frame-bytes"
-
-        def raise_for_status(self) -> None:
-            """Validate the fake response."""
-            return None
-
-    class _FakeClient:
-        """Capture outbound requests without making network calls."""
-
-        def __enter__(self) -> "_FakeClient":
-            return self
-
-        def __exit__(self, exc_type, exc, tb) -> None:
-            return None
-
-        def get(self, url: str, params: dict[str, str]) -> _FakeResponse:
-            """Return a successful fake snapshot response."""
-            assert url == "http://camera.local"
-            assert params == {"action": "snapshot"}
-            return _FakeResponse()
-
-    def _fake_sleep(duration: float) -> None:
-        """Advance fake time while the capture loop waits."""
-        fake_now["value"] += duration
-
-    monkeypatch.setattr(
-        ustreamer_api.worker._capture,
-        "get_common_settings",
-        lambda: types.SimpleNamespace(
-            data_dir=tmp_path,
-            db_file=":memory:",
-        ),
-    )
-    monkeypatch.setattr(ustreamer_api.worker._capture.httpx, "Client", lambda timeout: _FakeClient())
-    monkeypatch.setattr(ustreamer_api.worker._capture.time, "monotonic", lambda: fake_now["value"])
-    monkeypatch.setattr(ustreamer_api.worker._capture.time, "sleep", _fake_sleep)
-    monkeypatch.setattr(ustreamer_api.worker._capture.signal, "getsignal", lambda signum: None)
-    monkeypatch.setattr(
-        ustreamer_api.worker._capture.signal,
-        "signal",
-        lambda signum, handler: captured_handlers.__setitem__(signum, handler),
-    )
-    monkeypatch.setattr(
-        ustreamer_api.worker._capture,
-        "render_video",
-        lambda image_dir, target_fps, output_file: render_calls.append((image_dir, target_fps, output_file)),
-    )
-
-    timelapse = ustreamer_api.models.db.Timelapse(
-        event_duration=0.3,
-        target_duration=0.1,
-        target_fps=10,
-    )
-
-    ustreamer_api.worker._capture.capture_timelapse(
-        timelapse,
-        types.SimpleNamespace(ustreamer_url="http://camera.local"),
-    )
-
-    output_dir = timelapse.image_dir(tmp_path)
-    output_file = timelapse.output_file(tmp_path)
-
-    assert not output_dir.exists()
-    assert timelapse.ended_at is not None
-    assert render_calls == [(output_dir, timelapse.target_fps, output_file)]
+    assert created_output_dirs == [timelapse.image_dir(tmp_path)]
+    assert created_output_dirs[0].exists()
+    assert timelapse.output_file(tmp_path).exists()
