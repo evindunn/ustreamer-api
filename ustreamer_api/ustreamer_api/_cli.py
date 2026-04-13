@@ -88,6 +88,21 @@ def list(
 
 
 @client.command()
+@click.argument("timelapse_id")
+@click.pass_context
+def delete(ctx: click.Context, timelapse_id: str) -> None:
+    """Delete a timelapse job via the ustreamer API."""
+    request = urllib.request.Request(
+        f"{ctx.obj['base_url'].rstrip('/')}/timelapses/{timelapse_id}",
+        method="DELETE",
+    )
+
+    ssl_context = typing.cast(dict[str, ssl.SSLContext | None], ctx.obj)["ssl_context"]
+    with urllib.request.urlopen(request, context=ssl_context) as response:
+        click.echo(response.read().decode("utf-8"))
+
+
+@client.command()
 @click.option("--event-duration", default=60.0, show_default=True, type=float, help="Event duration in seconds.")
 @click.option("--target-duration", default=10.0, show_default=True, type=float, help="Target timelapse duration in seconds.")
 @click.option("--target-fps", default=24.0, show_default=True, type=float, help="Target frames per second.")
