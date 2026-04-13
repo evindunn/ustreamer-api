@@ -2,6 +2,7 @@ import concurrent.futures
 import contextlib
 import logging
 import multiprocessing
+import os
 import random
 import signal
 import time
@@ -67,13 +68,12 @@ def _get_db_engine(settings: WorkerSettings) -> typing.Iterator[sqlalchemy.Engin
 
 def process_job(job_id: uuid.UUID, settings: WorkerSettings) -> uuid.UUID:
     """Fetch a the job with the given id from the database and start generating the timelapse frames."""
-    logger = base_logger.getChild("pid-%d" % multiprocessing.current_process().pid)
+    logger = base_logger.getChild("pid-%d" % os.getpid())
     logger.info(f"Processing job {job_id}...")
     with _get_db_engine(settings) as db_engine:
         with sqlalchemy.orm.Session(db_engine) as session:
             timelapse = session.get(Timelapse, job_id)
             if timelapse is not None:
-                logger.info(f"Processing job {job_id}...")
                 capture_timelapse(timelapse, settings)
                 session.add(timelapse)
                 session.commit()

@@ -6,7 +6,7 @@ import typing
 from ..models.db import Timelapse
 from ..settings import WorkerSettings
 from ..settings import get_common_settings
-from .render import render_video
+from ._render import render_video
 
 
 def capture_timelapse(timelapse: Timelapse, settings: WorkerSettings) -> None:
@@ -31,7 +31,7 @@ def capture_timelapse(timelapse: Timelapse, settings: WorkerSettings) -> None:
 
     try:
         try:
-            with httpx.Client(timeout=10.0) as client:
+            with httpx.Client(timeout=2.0) as client:
                 while not stop_requested:
                     elapsed = time.monotonic() - started_at
                     if elapsed >= timelapse.event_duration:

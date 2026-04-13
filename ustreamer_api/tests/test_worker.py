@@ -11,7 +11,7 @@ import ustreamer_api.api
 import ustreamer_api.models.db
 import ustreamer_api.worker._capture
 import ustreamer_api.worker.main
-import ustreamer_api.worker.render
+import ustreamer_api.worker._render
 
 JOB_COUNT = 10
 EVENT_DURATION = 60
@@ -229,12 +229,12 @@ def test_render_video_removes_image_dir(monkeypatch, tmp_path) -> None:
     subprocess_calls: list[list[str]] = []
 
     monkeypatch.setattr(
-        ustreamer_api.worker.render.subprocess,
+        ustreamer_api.worker._render.subprocess,
         "run",
         lambda args, **kwargs: subprocess_calls.append(args),
     )
 
-    ustreamer_api.worker.render.render_video(image_dir, TARGET_FPS, output_file)
+    ustreamer_api.worker._render.render_video(image_dir, TARGET_FPS, output_file)
 
     assert not image_dir.exists()
     assert subprocess_calls == [
