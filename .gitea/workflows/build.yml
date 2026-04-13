@@ -27,7 +27,6 @@ jobs:
           password: ${{ secrets.REGISTRY_ACCESS_TOKEN }}
 
       - name: Build Docker image
-        working-directory: ustreamer_api
         run: docker build -t ${{ steps.vars.outputs.IMAGE }} .
 
       - name: Push Docker image
