@@ -47,8 +47,9 @@ class Timelapse(SQLModel, table=True):
             stop_requested = True
 
         try:
-            config = settings.get_worker_settings()
-            output_dir = config.data_dir / f"{self.started_at.strftime('%Y-%m-%dT%H-%M-%S')}_{self.id.hex}"
+            worker_settings = settings.get_worker_settings()
+            common_settings = settings.get_common_settings()
+            output_dir = common_settings.data_dir / f"{self.started_at.strftime('%Y-%m-%dT%H-%M-%S')}_{self.id.hex}"
             output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
             started_at = time.monotonic()
             last_capture_at = started_at - self.shot_interval
@@ -64,7 +65,7 @@ class Timelapse(SQLModel, table=True):
                             break
 
                         if elapsed - (last_capture_at - started_at) >= self.shot_interval:
-                            response = client.get(config.ustreamer_url, params={"action": "snapshot"})
+                            response = client.get(worker_settings.ustreamer_url, params={"action": "snapshot"})
                             response.raise_for_status()
                             frame_path = output_dir / f"frame-{frame_index:06d}.jpg"
                             frame_path.write_bytes(response.content)
@@ -104,7 +105,7 @@ def get_engine(db_file: str) -> sqlalchemy.Engine:
     return engine
 
 
-def _get_session(settings: typing.Annotated[settings.APISettings, Depends(settings.get_api_settings)]) -> typing.Generator[sqlalchemy.orm.Session, None, None]:
+def _get_session(settings: typing.Annotated[settings.CommonSettings, Depends(settings.get_common_settings)]) -> typing.Generator[sqlalchemy.orm.Session, None, None]:
     """Return a new database session."""
     engine = get_engine(settings.db_file)
     session = sqlalchemy.orm.Session(engine)

@@ -1,24 +1,26 @@
+import os
+
 import pytest
 
 from ustreamer_api.models.db import get_engine
-from ustreamer_api.settings import get_api_settings, get_worker_settings
+from ustreamer_api.settings import get_common_settings, get_worker_settings
 
 
 @pytest.fixture(autouse=True)
-def clear_cached_state() -> None:
+def clear_cached_state(monkeypatch):
     """Reset cached settings and engines around each test."""
-    settings = get_api_settings()
-    get_api_settings.cache_clear()
-    get_worker_settings.cache_clear()
+    for env_var in os.environ.keys():
+        if env_var.startswith("USTREAMER_"):
+            monkeypatch.delenv(env_var, raising=False)
 
-    engine = get_engine(settings.db_file)
-    engine.dispose()  # Dispose all engines to release file locks on the database
-    get_engine.cache_clear()
-    yield
-    settings = get_api_settings()
-    get_api_settings.cache_clear()
+    get_common_settings.cache_clear()
     get_worker_settings.cache_clear()
-
-    engine = get_engine(settings.db_file)
-    engine.dispose()  # Dispose all engines to release file locks on the database
     get_engine.cache_clear()
+
+    try:
+        yield
+    finally:
+        settings = get_common_settings()
+        db = get_engine(settings.db_file)
+        get_engine.cache_clear()
+        db.dispose()

@@ -11,7 +11,7 @@ def _default_data_dir() -> pathlib.Path:
     return pathlib.Path.cwd() / ".ustreamer-data"
 
 
-class _CommonSettings(pydantic_settings.BaseSettings):
+class CommonSettings(pydantic_settings.BaseSettings):
     """Settings shared by the API server and worker."""
     model_config = pydantic_settings.SettingsConfigDict(env_prefix="USTREAMER_", frozen=True)
 
@@ -32,12 +32,7 @@ class _CommonSettings(pydantic_settings.BaseSettings):
         return value
 
 
-class APISettings(_CommonSettings):
-    """Settings used by the API server."""
-    model_config = pydantic_settings.SettingsConfigDict(env_prefix="USTREAMER_API_", frozen=True)
-
-
-class WorkerSettings(_CommonSettings):
+class WorkerSettings(pydantic_settings.BaseSettings):
     """Settings used by the background worker."""
     model_config = pydantic_settings.SettingsConfigDict(env_prefix="USTREAMER_WORKER_", frozen=True)
 
@@ -62,9 +57,9 @@ class WorkerSettings(_CommonSettings):
 
 
 @functools.cache
-def get_api_settings() -> APISettings:
-    """Return a cached instance of the API settings."""
-    return APISettings()
+def get_common_settings() -> CommonSettings:
+    """Return a cached instance of the common settings."""
+    return CommonSettings()
 
 
 @functools.cache

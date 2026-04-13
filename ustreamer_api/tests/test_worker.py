@@ -54,10 +54,8 @@ def _create_timelapses_via_api(
 ) -> tuple[pathlib.Path, list[uuid.UUID]]:
     """Create timelapse records through the API and return their ids."""
     db_file = tmp_path / "worker-test.sqlite"
-    monkeypatch.setenv("USTREAMER_API_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("USTREAMER_API_DB_FILE", str(db_file))
-    monkeypatch.setenv("USTREAMER_WORKER_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("USTREAMER_WORKER_DB_FILE", str(db_file))
+    monkeypatch.setenv("USTREAMER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("USTREAMER_DB_FILE", str(db_file))
 
     created_job_ids: list[uuid.UUID] = []
     with fastapi.testclient.TestClient(ustreamer_api.api.create_app()) as client:
@@ -171,9 +169,16 @@ def test_timelapse_execute_captures_frames_and_stops_on_sigint(monkeypatch, tmp_
 
     monkeypatch.setattr(
         ustreamer_api.models.db.settings,
-        "get_worker_settings",
+        "get_common_settings",
         lambda: types.SimpleNamespace(
             data_dir=tmp_path,
+            db_file=":memory:",
+        ),
+    )
+    monkeypatch.setattr(
+        ustreamer_api.models.db.settings,
+        "get_worker_settings",
+        lambda: types.SimpleNamespace(
             ustreamer_url="http://camera.local",
         ),
     )

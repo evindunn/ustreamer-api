@@ -14,8 +14,8 @@ EXPECTED_SHOT_INTERVAL = 0.25
 
 def test_start_timelapse_creates_record(monkeypatch, tmp_path) -> None:
     """Creating a timelapse returns the persisted record."""
-    monkeypatch.setenv("USTREAMER_API_DATA_DIR", str(tmp_path))
-    monkeypatch.setenv("USTREAMER_API_DB_FILE", ":memory:")
+    monkeypatch.setenv("USTREAMER_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("USTREAMER_DB_FILE", ":memory:")
 
     with TestClient(create_app()) as client:
         response = client.post(

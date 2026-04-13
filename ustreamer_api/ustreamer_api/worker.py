@@ -11,7 +11,7 @@ import uuid
 import sqlalchemy
 import sqlalchemy.orm
 
-from .settings import WorkerSettings, get_worker_settings
+from .settings import WorkerSettings, get_common_settings, get_worker_settings
 from .models.db import get_engine, Timelapse
 
 
@@ -54,7 +54,8 @@ def _configure_logging(settings: WorkerSettings) -> None:
 @contextlib.contextmanager
 def _get_db_engine(settings: WorkerSettings) -> typing.Iterator[sqlalchemy.Engine]:
     """Create and return a new database session."""
-    engine = get_engine(settings.db_file)
+    common_settings = get_common_settings()
+    engine = get_engine(common_settings.db_file)
     try:
         yield engine
     finally:

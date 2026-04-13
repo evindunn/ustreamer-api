@@ -3,3 +3,4 @@
 .coverage
 .ustreamer-data/
 .pytest_cache/
+*.sqlite
