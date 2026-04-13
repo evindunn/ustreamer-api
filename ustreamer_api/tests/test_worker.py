@@ -22,7 +22,7 @@ class _StopWorker(Exception):
 class _FakeExecutor:
     """Capture submitted jobs without spawning real worker processes."""
 
-    def __init__(self, submitted_jobs: list[tuple[object, uuid.UUID, object]], max_workers: int) -> None:
+    def __init__(self, submitted_jobs: list[tuple[object, uuid.UUID, str, object]], max_workers: int) -> None:
         self.submitted_jobs = submitted_jobs
         self.max_workers = max_workers
 
@@ -36,10 +36,11 @@ class _FakeExecutor:
         self,
         fn: object,
         job_id: uuid.UUID,
+        db_file: str,
         settings: object,
     ) -> concurrent.futures.Future[uuid.UUID]:
         """Return a completed future for the submitted job id."""
-        self.submitted_jobs.append((fn, job_id, settings))
+        self.submitted_jobs.append((fn, job_id, db_file, settings))
         future: concurrent.futures.Future[uuid.UUID] = concurrent.futures.Future()
         future.set_result(job_id)
         return future
@@ -74,9 +75,9 @@ def _create_timelapses_via_api(
 
 def test_worker_main_submits_ten_api_created_jobs(monkeypatch, tmp_path) -> None:
     """Worker main submits one future per active job in the database."""
-    _, created_job_ids = _create_timelapses_via_api(monkeypatch, tmp_path)
+    db_file, created_job_ids = _create_timelapses_via_api(monkeypatch, tmp_path)
 
-    submitted_jobs: list[tuple[object, uuid.UUID, object]] = []
+    submitted_jobs: list[tuple[object, uuid.UUID, str, object]] = []
     executor_instances: list[_FakeExecutor] = []
 
     monkeypatch.setattr(ustreamer_api.worker.main.multiprocessing, "cpu_count", lambda: JOB_COUNT)
@@ -99,7 +100,8 @@ def test_worker_main_submits_ten_api_created_jobs(monkeypatch, tmp_path) -> None
     assert len(executor_instances) == 1
     assert executor_instances[0].max_workers == JOB_COUNT
     assert len(submitted_jobs) == JOB_COUNT
-    assert {job_id for _, job_id, _ in submitted_jobs} == set(created_job_ids)
+    assert {job_id for _, job_id, _, _ in submitted_jobs} == set(created_job_ids)
+    assert {submitted_db_file for _, _, submitted_db_file, _ in submitted_jobs} == {str(db_file)}
 
 
 def test_process_job_persists_execute_side_effects(monkeypatch, tmp_path) -> None:
@@ -116,7 +118,7 @@ def test_process_job_persists_execute_side_effects(monkeypatch, tmp_path) -> Non
     monkeypatch.setattr(ustreamer_api.worker.main.random, "randint", lambda start, end: 0)
     monkeypatch.setattr(ustreamer_api.worker.main.time, "sleep", lambda _: None)
 
-    result = ustreamer_api.worker.main.process_job(job_id, settings)
+    result = ustreamer_api.worker.main.process_job(job_id, str(db_file), settings)
 
     engine = ustreamer_api.models.db.get_engine(str(db_file))
     with sqlalchemy.orm.Session(engine) as session:
@@ -152,7 +154,7 @@ def test_process_job_commits_capture_side_effects(monkeypatch, tmp_path) -> None
     monkeypatch.setattr(ustreamer_api.worker.main.random, "randint", lambda start, end: 0)
     monkeypatch.setattr(ustreamer_api.worker.main.time, "sleep", lambda _: None)
 
-    result = ustreamer_api.worker.main.process_job(job_id, settings)
+    result = ustreamer_api.worker.main.process_job(job_id, str(db_file), settings)
 
     engine = ustreamer_api.models.db.get_engine(str(db_file))
     with sqlalchemy.orm.Session(engine) as session:

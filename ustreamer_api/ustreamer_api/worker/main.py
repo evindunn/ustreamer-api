@@ -57,20 +57,19 @@ def _configure_logging(settings: WorkerSettings) -> None:
 
 
 @contextlib.contextmanager
-def _get_db_engine(settings: WorkerSettings) -> typing.Iterator[sqlalchemy.Engine]:
+def _get_db_engine(db_file: str) -> typing.Iterator[sqlalchemy.Engine]:
     """Create and return a new database session."""
-    common_settings = get_common_settings()
-    engine = get_engine(common_settings.db_file)
+    engine = get_engine(db_file)
     try:
         yield engine
     finally:
         engine.dispose()
 
-def process_job(job_id: uuid.UUID, settings: WorkerSettings) -> uuid.UUID:
+def process_job(job_id: uuid.UUID, db_file: str, settings: WorkerSettings) -> uuid.UUID:
     """Fetch a the job with the given id from the database and start generating the timelapse frames."""
     logger = base_logger.getChild("pid-%d" % os.getpid())
     logger.info(f"Processing job {job_id}...")
-    with _get_db_engine(settings) as db_engine:
+    with _get_db_engine(db_file) as db_engine:
         with sqlalchemy.orm.Session(db_engine) as session:
             timelapse = session.get(Timelapse, job_id)
             if timelapse is not None:
@@ -88,8 +87,9 @@ def process_job(job_id: uuid.UUID, settings: WorkerSettings) -> uuid.UUID:
 
 def worker_main() -> None:
     """Worker process function to perform background tasks."""
-    settings = get_worker_settings()
-    _configure_logging(settings)
+    worker_settings = get_worker_settings()
+    common_settings = get_common_settings()
+    _configure_logging(worker_settings)
 
     stop_requested = False
 
@@ -103,7 +103,7 @@ def worker_main() -> None:
     signal.signal(signal.SIGINT, _handle_sigint)
 
     try:
-        with _get_db_engine(settings) as db_engine, concurrent.futures.ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+        with _get_db_engine(common_settings.db_file) as db_engine, concurrent.futures.ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
             base_logger.info("Waiting for jobs...")
             base_logger.info("Press Ctrl+C to stop")
             while True:
@@ -116,7 +116,7 @@ def worker_main() -> None:
 
                 procs = []
                 for job_id in active_job_ids:
-                    proc = executor.submit(process_job, job_id, settings)
+                    proc = executor.submit(process_job, job_id, common_settings.db_file, worker_settings)
                     procs.append(proc)
 
                 for proc in concurrent.futures.as_completed(procs):
