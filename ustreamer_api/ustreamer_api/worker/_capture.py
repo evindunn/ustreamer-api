@@ -1,4 +1,7 @@
+import contextlib
+import logging
 import shutil
+import traceback
 
 import httpx
 import signal
@@ -11,7 +14,18 @@ from ..settings import get_common_settings
 from ._render import render_video
 
 
-def capture_timelapse(timelapse: Timelapse, settings: WorkerSettings) -> None:
+@contextlib.contextmanager
+def _graceful_sigint(handler: typing.Callable[[int, typing.Any], None]) -> typing.Iterator[None]:
+    """Temporarily install a SIGINT handler and restore the previous one afterwards."""
+    previous_sigint_handler = signal.getsignal(signal.SIGINT)
+    signal.signal(signal.SIGINT, handler)
+    try:
+        yield
+    finally:
+        signal.signal(signal.SIGINT, previous_sigint_handler)
+
+
+def capture_timelapse(logger: logging.Logger, timelapse: Timelapse, settings: WorkerSettings) -> None:
     """Capture frames for a timelapse and render the resulting video."""
     stop_requested = False
     common_settings = get_common_settings()
@@ -28,10 +42,7 @@ def capture_timelapse(timelapse: Timelapse, settings: WorkerSettings) -> None:
         nonlocal stop_requested
         stop_requested = True
 
-    previous_sigint_handler = signal.getsignal(signal.SIGINT)
-    signal.signal(signal.SIGINT, _handle_sigint)
-
-    try:
+    with _graceful_sigint(_handle_sigint):
         try:
             with httpx.Client(timeout=2.0) as client:
                 while not stop_requested:
@@ -49,13 +60,15 @@ def capture_timelapse(timelapse: Timelapse, settings: WorkerSettings) -> None:
                         continue
 
                     time.sleep(min(0.1, timelapse.shot_interval))
-        finally:
-            timelapse.end()
-    finally:
-        signal.signal(signal.SIGINT, previous_sigint_handler)
+        except Exception as e:
+            stop_requested = True
+            timelapse.error = str(e)
+            logger.warning(f"Error occurred while capturing timelapse {timelapse.id}\n{traceback.format_exc().strip()}\n")
 
-    if not stop_requested:
-        try:
-            render_video(image_dir, timelapse)
-        finally:
-            shutil.rmtree(image_dir)
+        timelapse.end()
+
+    try:
+        if not stop_requested:
+                render_video(common_settings.data_dir, timelapse)
+    finally:
+        shutil.rmtree(image_dir)

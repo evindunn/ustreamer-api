@@ -113,7 +113,7 @@ def test_process_job_persists_execute_side_effects(monkeypatch, tmp_path) -> Non
     monkeypatch.setattr(
         ustreamer_api.worker.main,
         "capture_timelapse",
-        lambda timelapse, worker_settings: setattr(timelapse, "ended_at", timelapse.started_at),
+        lambda logger, timelapse, worker_settings: setattr(timelapse, "ended_at", timelapse.started_at),
     )
     monkeypatch.setattr(ustreamer_api.worker.main.random, "randint", lambda start, end: 0)
     monkeypatch.setattr(ustreamer_api.worker.main.time, "sleep", lambda _: None)
@@ -136,8 +136,9 @@ def test_process_job_commits_capture_side_effects(monkeypatch, tmp_path) -> None
     created_output_dirs: list[pathlib.Path] = []
     settings = ustreamer_api.worker.main.WorkerSettings()
 
-    def _fake_capture(timelapse: ustreamer_api.models.db.Timelapse, worker_settings: object) -> None:
+    def _fake_capture(logger: object, timelapse: ustreamer_api.models.db.Timelapse, worker_settings: object) -> None:
         """Create representative capture side effects on disk and on the model."""
+        del logger
         del worker_settings
         output_dir = timelapse.image_dir(tmp_path)
         created_output_dirs.append(output_dir)

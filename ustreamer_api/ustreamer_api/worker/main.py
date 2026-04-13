@@ -73,7 +73,7 @@ def process_job(job_id: uuid.UUID, db_file: str, settings: WorkerSettings) -> uu
         with sqlalchemy.orm.Session(db_engine) as session:
             timelapse = session.get(Timelapse, job_id)
             if timelapse is not None:
-                capture_timelapse(timelapse, settings)
+                capture_timelapse(logger, timelapse, settings)
                 session.add(timelapse)
                 session.commit()
             else:
