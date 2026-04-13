@@ -14,6 +14,7 @@ fi
 
 HOST="$1"
 APP_PREFIX='/opt/apps/ustreamer'
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
 echo "Deploying to $HOST..."
 
@@ -22,8 +23,8 @@ ssh $HOST mkdir -p -m 755 "${APP_PREFIX}"
 
 echo "Syncing ${APP_PREFIX}..."
 rsync -Dlprt --progress \
-    compose.yaml \
-    nginx.conf \
+    "${SCRIPT_DIR}/compose.yaml" \
+    "${SCRIPT_DIR}/nginx.conf" \
     "${HOST}:${APP_PREFIX}/"
 
 printf 'CERT_APPROLE_ID=%s\n' "$CERT_APPROLE_ID" | ssh "$HOST" "cat > /etc/ustreamer/vault-agent.env"

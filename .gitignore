@@ -1,2 +1,6 @@
-.env
 **/*.pyc
+.venv/
+.coverage
+.ustreamer-data/
+.pytest_cache/
+*.sqlite

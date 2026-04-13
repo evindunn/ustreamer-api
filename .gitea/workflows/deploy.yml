@@ -3,8 +3,9 @@ name: deploy ustreamer
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - 'ustreamer_api/**'
+    paths:
+      - .gitea/workflows/deploy.yml
+      - deploy/**
   registry_package:
     type:
       - published
@@ -45,4 +46,4 @@ jobs:
       - name: run deploy.sh
         env:
           CERT_APPROLE_ID: "${{ secrets.CERT_APPROLE_ID }}"
-        run: ./deploy.sh picam.localdomain.net
+        run: ./deploy/deploy.sh picam.localdomain.net
