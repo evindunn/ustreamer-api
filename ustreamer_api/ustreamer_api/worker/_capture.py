@@ -16,10 +16,8 @@ def capture_timelapse(timelapse: Timelapse, settings: WorkerSettings) -> None:
     stop_requested = False
     common_settings = get_common_settings()
 
-    output_dir = timelapse.image_dir(common_settings.data_dir)
-    output_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
-
-    output_file = timelapse.output_file(common_settings.data_dir)
+    image_dir = timelapse.image_dir(common_settings.data_dir)
+    image_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
     started_at = time.monotonic()
     last_capture_at = started_at - timelapse.shot_interval
@@ -44,7 +42,7 @@ def capture_timelapse(timelapse: Timelapse, settings: WorkerSettings) -> None:
                     if elapsed - (last_capture_at - started_at) >= timelapse.shot_interval:
                         response = client.get(settings.ustreamer_url, params={"action": "snapshot"})
                         response.raise_for_status()
-                        frame_path = output_dir / f"frame-{frame_index:06d}.jpg"
+                        frame_path = image_dir / f"frame-{frame_index:06d}.jpg"
                         frame_path.write_bytes(response.content)
                         frame_index += 1
                         last_capture_at = time.monotonic()
@@ -57,5 +55,7 @@ def capture_timelapse(timelapse: Timelapse, settings: WorkerSettings) -> None:
         signal.signal(signal.SIGINT, previous_sigint_handler)
 
     if not stop_requested:
-        render_video(output_dir, timelapse.target_fps, output_file)
-        shutil.rmtree(output_dir)
+        try:
+            render_video(image_dir, timelapse)
+        finally:
+            shutil.rmtree(image_dir)
