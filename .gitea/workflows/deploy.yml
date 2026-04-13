@@ -13,11 +13,45 @@ on:
   workflow_dispatch: {}   # Manual Run button
 
 jobs:
+  detect-push-scope:
+    runs-on: dind
+    outputs:
+      build_triggered: ${{ steps.scope.outputs.build_triggered }}
+    steps:
+      - name: checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # if the build workflow would be triggered by this push
+      # we can skip deploy since the build workflow will trigger it after pushing the new image
+      - name: detect whether build workflow would run
+        id: scope
+        run: |
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "build_triggered=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed_files="$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")"
+
+          if printf '%s\n' "$changed_files" | grep -Eq '^(\.gitea/workflows/build\.yml|ustreamer_api/)'; then
+            echo "build_triggered=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_triggered=false" >> "$GITHUB_OUTPUT"
+          fi
+
   deploy:
+    needs: detect-push-scope
     runs-on: ssh
     if: > 
-      github.event_name != 'registry_package' ||
-      (
+      github.event_name == 'workflow_dispatch'
+      || (
+        github.event_name == 'push' &&
+        needs.detect-push-scope.outputs.build_triggered != 'true'
+      )
+      || (
+        github.event_name == 'registry_package' &&
         github.event.registry_package.name == 'ustreamer-api' &&
         github.event.registry_package.package_version.container_metadata.tag.name == 'latest'
       )
