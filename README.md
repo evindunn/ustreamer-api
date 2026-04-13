@@ -31,16 +31,16 @@ When deployed through Nginx, the API is exposed under `https://picam.localdomain
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `USTREAMER_API_DATA_DIR` | Directory used for API-managed data such as the SQLite database. | `./.ustreamer-data` |
-| `USTREAMER_API_DB_FILE` | SQLite database path for the API server. | `:memory:` |
+| `USTREAMER_DATA_DIR` | Directory to store application data, such as the database file and timelapse images/videos. | `./.ustreamer-data` |
+| `USTREAMER_DB_FILE` | Path to the database file. If set to `:memory:`, an in-memory database will be used. | `:memory:` |
 
 ### Worker env vars
 
 | Variable | Description | Default |
 | --- | --- | --- |
-| `USTREAMER_WORKER_DATA_DIR` | Directory used to store worker output such as captured frames. | `./.ustreamer-data` |
-| `USTREAMER_WORKER_DB_FILE` | SQLite database path for the worker. | `:memory:` |
-| `USTREAMER_WORKER_USTREAMER_URL` | Base URL used by the worker to fetch snapshots from uStreamer. | `http://127.0.0.1:8080` |
+| `USTREAMER_DATA_DIR` | Directory to store application data, such as the database file and timelapse images/videos. | `./.ustreamer-data` |
+| `USTREAMER_DB_FILE` | Path to the database file. If set to `:memory:`, an in-memory database will be used. | `:memory:` |
+| `USTREAMER_WORKER_USTREAMER_URL` | Base URL of the uStreamer instance to control. | `http://127.0.0.1:8080` |
 | `USTREAMER_WORKER_LOG_LEVEL` | Worker log level. | `INFO` |
 
 ### CLI client env vars
@@ -51,9 +51,15 @@ When deployed through Nginx, the API is exposed under `https://picam.localdomain
 
 ### API routes
 
+The FastAPI application routes are mounted at `/` internally and exposed publicly under `/api` by Nginx.
+
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/healthz` | Return a simple health status payload. |
+| `GET` | `/timelapses` | Return timelapses sorted by start time with pagination. |
+| `GET` | `/timelapses/{timelapse_id}` | Return a single timelapse by id. |
+| `GET` | `/timelapses/{timelapse_id}/video` | Return the rendered video for a completed timelapse. |
+| `DELETE` | `/timelapses/{timelapse_id}` | Delete a timelapse and any generated on-disk resources. |
 | `POST` | `/timelapses` | Create and persist a new timelapse record. |
 
 ## 4. Check the camera on the host
