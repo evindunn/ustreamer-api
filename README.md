@@ -63,6 +63,8 @@ The FastAPI application routes are mounted at `/` internally and exposed publicl
 | `DELETE` | `/timelapses/{timelapse_id}` | Delete a timelapse and any generated on-disk resources. |
 | `POST` | `/timelapses` | Create and persist a new timelapse record. |
 
+See `/docs` for more details.
+
 ## 4. Check the camera on the host
 
 ```bash
