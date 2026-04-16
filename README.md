@@ -110,6 +110,12 @@ You can also override the bind address for the API server:
 poetry run ustreamer-api serve --host 0.0.0.0 --port 8000
 ```
 
+Dump the generated OpenAPI schema to stdout:
+
+```bash
+poetry run ustreamer-api openapi
+```
+
 ## Run tests
 
 Run the test suite with coverage reporting:

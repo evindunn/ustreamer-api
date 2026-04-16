@@ -1,5 +1,3 @@
-import certifi
-import click
 import json
 import os
 import pathlib
@@ -7,7 +5,12 @@ import ssl
 import typing
 import urllib.error
 import urllib.request
+
+import certifi
+import click
 import uvicorn
+
+import ustreamer_api.api
 
 from .worker.main import worker_main
 
@@ -16,7 +19,7 @@ DEFAULT_CLIENT_BASE_URL = "https://picam.localdomain.net/api"
 
 @click.group()
 def cli() -> None:
-    pass
+    """Run ustreamer API commands."""
 
 
 def _download_filename(headers: typing.Mapping[str, str]) -> str | None:
@@ -47,6 +50,11 @@ def _raise_client_http_error(exc: urllib.error.HTTPError) -> typing.NoReturn:
     raise click.exceptions.Exit(1)
 
 
+def _get_openapi_json() -> str:
+    """Return the application OpenAPI schema as formatted JSON."""
+    return json.dumps(ustreamer_api.api.create_app().openapi(), indent=2, sort_keys=True)
+
+
 @cli.command()
 @click.option("--host", default="127.0.0.1", show_default=True, help="Host interface to bind.")
 @click.option("--port", default=8000, show_default=True, type=int, help="Port to listen on.")
@@ -69,6 +77,12 @@ def worker() -> None:
         worker_main()
     except KeyboardInterrupt:
         pass
+
+
+@cli.command(name="openapi")
+def openapi() -> None:
+    """Dump the OpenAPI schema for the API application."""
+    click.echo(_get_openapi_json())
 
 
 @cli.group()

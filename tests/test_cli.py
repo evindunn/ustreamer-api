@@ -8,6 +8,7 @@ import pytest
 import urllib.error
 
 import ustreamer_api._cli
+import ustreamer_api.api
 import ustreamer_api.worker.main
 
 
@@ -73,6 +74,22 @@ def test_worker_invokes_worker_main(monkeypatch) -> None:
 
     assert result.exit_code == 0
     assert worker_calls == ["called"]
+
+
+def test_openapi_prints_schema_to_stdout(monkeypatch) -> None:
+    """OpenAPI command prints the generated schema when no output path is set."""
+    runner = click.testing.CliRunner()
+
+    monkeypatch.setattr(
+        ustreamer_api.api,
+        "create_app",
+        lambda: type("_FakeApp", (), {"openapi": lambda self: {"openapi": "3.1.0"}})(),
+    )
+
+    result = runner.invoke(ustreamer_api._cli.cli, ["openapi"])
+
+    assert result.exit_code == 0
+    assert json.loads(result.output) == {"openapi": "3.1.0"}
 
 
 def test_client_create_posts_payload(monkeypatch) -> None:
