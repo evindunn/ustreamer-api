@@ -1,5 +1,7 @@
 # ustreamer API
 
+[![Build](https://github.com/evindunn/ustreamer-api/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/evindunn/ustreamer-api/actions/workflows/build.yml)
+
 This repository contains `ustreamer_api`: a FastAPI service, background worker, and CLI for managing uStreamer-backed timelapses.
 
 ### API server env vars
