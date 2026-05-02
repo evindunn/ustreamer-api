@@ -1,4 +1,4 @@
-FROM git.localdomain.net/docker/images/debian:trixie-slim AS base
+FROM evindunn/debian:trixie-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1

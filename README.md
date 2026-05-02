@@ -1,32 +1,6 @@
-# ustreamer with Docker Compose
+# ustreamer API
 
-This setup runs [`pikvm/ustreamer`](https://github.com/pikvm/ustreamer) behind Nginx in Docker Compose and exposes HTTPS on port `443` by default.
-
-## 1. Configure
-
-Copy the example environment file:
-
-```bash
-cp .env.example deploy/.env
-```
-
-If your camera is not `/dev/video0`, update `VIDEO_DEVICE` in `deploy/.env`.
-
-## 2. Start
-
-```bash
-cd deploy
-docker compose up -d
-```
-
-## 3. Open the stream
-
-- Stream: `https://localhost/stream`
-- Web UI: `https://localhost/`
-
-## ustreamer-api
-
-When deployed through Nginx, the API is exposed under `https://picam.localdomain.net/api`.
+This repository contains `ustreamer_api`: a FastAPI service, background worker, and CLI for managing uStreamer-backed timelapses.
 
 ### API server env vars
 
@@ -48,11 +22,12 @@ When deployed through Nginx, the API is exposed under `https://picam.localdomain
 
 | Variable | Description | Default |
 | --- | --- | --- |
+| `USTREAMER_API_BASE_URL` | Base URL used by `ustreamer-api client` commands. | `https://picam.localdomain.net/api` |
 | `USTREAMER_CA_CERTS` | Comma-separated list of CA certificate files trusted by `ustreamer-api client create`. | unset |
 
 ### API routes
 
-The FastAPI application routes are mounted at `/` internally and exposed publicly under `/api` by Nginx.
+The FastAPI application routes are mounted at `/`.
 
 | Method | Path | Description |
 | --- | --- | --- |
@@ -64,21 +39,6 @@ The FastAPI application routes are mounted at `/` internally and exposed publicl
 | `POST` | `/timelapses` | Create and persist a new timelapse record. |
 
 See `/docs` for more details.
-
-## 4. Check the camera on the host
-
-```bash
-ls /dev/video*
-v4l2-ctl --list-devices
-```
-
-## Notes
-
-- The container maps the host video device directly, so this is intended for Linux hosts with V4L2 camera devices.
-- `ustreamer` listens on `127.0.0.1:8080` by default, so the Compose file forces `--host=0.0.0.0` for container access.
-- Common settings can be changed with `deploy/.env`: `HTTPS_PORT`, `RESOLUTION`, `FPS`, and `QUALITY`.
-- The `vault-agent` and `nginx` services share the `ssl` volume. Certificates are available inside the proxy container at `/secrets/cert.crt`, `/secrets/cert.key`, and `/secrets/ca.crt`.
-- `ustreamer` does not terminate TLS here; Nginx handles HTTPS and proxies traffic to `ustreamer` over the internal Compose network.
 
 # Development
 
@@ -106,11 +66,15 @@ Run the background worker in a separate terminal:
 poetry run ustreamer-api worker
 ```
 
+Point the worker at a non-default uStreamer instance with `USTREAMER_WORKER_USTREAMER_URL` if needed.
+
 You can also override the bind address for the API server:
 
 ```bash
 poetry run ustreamer-api serve --host 0.0.0.0 --port 8000
 ```
+
+For local CLI use, set `USTREAMER_API_BASE_URL=http://127.0.0.1:8000` before running `ustreamer-api client ...`.
 
 Dump the generated OpenAPI schema to stdout:
 
